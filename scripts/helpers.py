@@ -240,6 +240,7 @@ def build_subagent_prompt(
         "dsr-web": _build_web_prompt,
         "dsr-code": _build_code_prompt,
         "dsr-da": _build_da_prompt,
+        "dsr-grey": _build_grey_prompt,
         "dsr-tiebreak": _build_tiebreak_prompt,
     }
     builder = prompts.get(template_name)
@@ -399,3 +400,38 @@ Rules:
 - Default to INCLUDE if uncertain (inclusive screening reduces false negatives).
 - If rationale from one screener is clearly stronger, adopt that decision.
 - Do NOT introduce new sources — only resolve the listed disagreements."""
+
+
+def _build_grey_prompt(rq_text: str, main_topic: str) -> str:
+    return f"""Search grey literature for RQ: {rq_text}
+
+Grey literature = theses, preprints, conference proceedings, technical reports,
+and institutional repository content NOT indexed in mainstream academic databases.
+
+## Sources to search
+- arxiv.org (preprints — physics, math, CS, engineering)
+- techrxiv.org (engineering preprints)
+- Google Scholar (conference papers, theses)
+- ProQuest Dissertations & Theses (if accessible)
+- Institutional repositories (MIT DSpace, Stanford Digital Repository, etc.)
+
+## Mandatory: Negative search
+You MUST run these queries IN ADDITION to the primary topic queries:
+- "limitations of {main_topic}"
+- "alternatives to {main_topic}"
+Report all queries and their results in a 'negative_search' section.
+
+## Output REQUIRED format
+### Source Table
+| Source ID | URL | Type (thesis/preprint/conference/tech-report) | Relevance (1-5) | Why relevant |
+
+### Search Audit
+| Query | Source | Results returned | Results used |
+
+### Negative Search
+| Query | Results found | Key findings |
+
+Rules:
+- Grey literature has higher false-positive rate. Apply stricter relevance threshold (≥4 to include).
+- Prefer sources with DOI or persistent identifier over ephemeral URLs.
+- Flag retraction/withdrawal notices if found."""

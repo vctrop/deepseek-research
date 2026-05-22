@@ -168,6 +168,7 @@ Generic — no project-specific infrastructure dependencies.
    - Otherwise: dispatch single `dsr-bibliography` (backward compatible).
 4. Dispatch remaining sub-agents in **one turn**:
    - `dsr-web` (if web axis available)
+   - `dsr-grey` (if `"grey"` in source_axes)
    - `dsr-code` (always)
    Interpolate `{RQ_TEXT}`, `{bibliography_path}`, `{main_topic}`, `{LOCAL_SOURCES_BLOCK}`, `{local_sources_json}` before dispatch.
 

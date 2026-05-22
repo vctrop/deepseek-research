@@ -104,5 +104,21 @@ agent_open(name="dsr-tiebreak", model="deepseek-v4-flash",
 
 ---
 
+---
+
+## Stage 2: dsr-grey (Grey literature axis)
+
+```
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-grey', rq_text='{RQ_TEXT}', main_topic='{main_topic}'))")
+```
+
+```
+agent_open(name="dsr-grey", model="deepseek-v4-flash",
+  allowed_tools=["web_search","fetch_url","write_file"],
+  prompt=<output from code_execution above>)
+```
+
+---
+
 Template names accepted by `build_subagent_prompt()`:
-`"dsr-bibliography"`, `"dsr-web"`, `"dsr-code"`, `"dsr-da"`, `"dsr-tiebreak"`
+`"dsr-bibliography"`, `"dsr-web"`, `"dsr-code"`, `"dsr-da"`, `"dsr-grey"`, `"dsr-tiebreak"`

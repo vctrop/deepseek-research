@@ -110,7 +110,7 @@ Records identified from:
   Web search ...................... n = {WEB_COUNT}
   Codebase ........................ n = {CODE_COUNT}
   Citation chasing (snowball) ..... n = 0 (not implemented)
-  Grey literature ................. n = 0 (not implemented)
+  Grey literature ................. n = {GREY_COUNT}
                                     ---------
 Total records ..................... n = {TOTAL}
 

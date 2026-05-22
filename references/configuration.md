@@ -7,7 +7,7 @@ If absent, defaults are used. User can override per-session in the prompt.
 
 | Variable | Default | Description |
 |---|---|---|
-| `source_axes` | `["bibliography", "codebase", "web"]` | Discovery axes |
+| `source_axes` | `["bibliography", "codebase", "web"]` | Discovery axes. Add `"grey"` for grey literature (arxiv, techrxiv, theses, conferences) |
 | `bibliography_path` | `"bibliography/"` | Path to bibliography index |
 | `output_dir` | `"research-reports/"` | Session output directory |
 | `session_index` | `"deep-search-sessions.json"` | JSON array of session history |
