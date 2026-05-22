@@ -5,7 +5,7 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 5 stages + adversarial checkpoint + 7 verification gates.
+Deep multi-source research pipeline: 5 stages + adversarial checkpoint + 11 verification gates.
 Corpus vivo: web-discovered sources are persisted and reused cross-session.
 Generic — no project-specific infrastructure dependencies.
 
@@ -168,13 +168,13 @@ Generic — no project-specific infrastructure dependencies.
    - `dsr-code` (always)
    Interpolate `{RQ_TEXT}`, `{bibliography_path}`, `{main_topic}`, `{LOCAL_SOURCES_BLOCK}`, `{local_sources_json}` before dispatch.
 
-4. RLM for large bibliography: if `bibliography_path` > 10KB, use `rlm_open`/`rlm_eval`/`rlm_close` instead of `read_file`. See `references/context-budget.md` §RLM Usage Thresholds.
+5. RLM for large bibliography: if `bibliography_path` > 10KB, use `rlm_open`/`rlm_eval`/`rlm_close` instead of `read_file`. See `references/context-budget.md` §RLM Usage Thresholds.
 
-5. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
+6. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
 
-6. **Validate outputs:** each sub-agent must return a Markdown table. If free-text, re-run with format instruction.
+7. **Validate outputs:** each sub-agent must return a Markdown table. If free-text, re-run with format instruction.
 
-7. **Consolidate + PRISMA:** merge tables, assign sequential IDs (S1, S2, ...), remove exact duplicates. Populate the PRISMA flow diagram in the template:
+8. **Consolidate + PRISMA:** merge tables, assign sequential IDs (S1, S2, ...), remove exact duplicates. Populate the PRISMA flow diagram in the template:
    - `{BIB_COUNT}`, `{WEB_COUNT}`, `{CODE_COUNT}` from axis sub-agent output counts
    - `{TOTAL}` = sum; `{DEDUPED}` = after duplicate removal
    - `{EXCLUDED_IRRELEVANT}` = sources with relevance < 2 (title/abstract irrelevant)
@@ -360,11 +360,12 @@ Skip if Stage 2 found 0 sources.
 **GATE-1 — File integrity.** Verify expected files exist and are non-empty:
 ```
 SESSION_DIR="{output_dir}/{date}-{slug}"
-expected="01-rq-brief"
+expected="01-rq-brief MANIFEST.txt"
 [ "$PERSIST_SOURCES" = "true" ] && expected="$expected 01a-local-corpus-triage"
+[ "$PROTOCOL_REGISTRY" != "none" ] && expected="$expected protocol-registration.json"
 expected="$expected 02-source-inventory 03-source-verification 04-synthesis 04a-devils-advocate 05-report"
 for stage in $expected; do
-  f="$SESSION_DIR/$stage.md"
+  f="$SESSION_DIR/$stage"
   [ -s "$f" ] && echo "OK $stage" || echo "FAIL: $stage missing or empty"
 done
 ```
