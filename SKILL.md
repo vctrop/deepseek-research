@@ -52,6 +52,7 @@ Generic — no project-specific infrastructure dependencies.
 | Risk of Bias assessment | `references/risk-of-bias.md` |
 | Protocol registry (OSF/local) | `scripts/protocol_registry.py` |
 | Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` |
+| GRADE certainty framework (engineering adaptation) | `references/grade-framework.md` |
 
 **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 
@@ -315,12 +316,21 @@ Skip if Stage 2 found 0 sources.
    - `code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from meta_analysis import random_effects_pool, forest_plot_text, heterogeneity_interpretation; import json; result = random_effects_pool({effects}, {variances}); print(json.dumps(result))")`
    - Write forest plot and heterogeneity assessment to the synthesis template.
 9. **Assess consensus:** per `references/epistemology.md` §Consensus Assessment Rules. Use CONSENSUS / MAJORITY / DIVERGENT / INSUFFICIENT labels.
+10. **GRADE certainty.** Load `read_file("{SKILL_DIR}/references/grade-framework.md")`. For each key finding:
+   a. Determine starting certainty from study design.
+   b. Apply downgrades: RoB (from Stage 3), I² (from meta-analysis), indirectness, imprecision, publication bias.
+   c. Apply upgrades: large effect, dose-response, opposing confounding.
+   d. Record final GRADE rating (⊕⊕⊕⊕/⊕⊕⊕⊝/⊕⊕⊝⊝/⊕⊝⊝⊝) with justification.
+11. **Sensitivity + Publication Bias.** Trigger when ≥5 sources + meta-analysis:
+   - `code_execution` for `sensitivity_leave_one_out({effects}, {variances})` → if any exclusion flips conclusion direction → WARNING.
+   - `code_execution` for `fail_safe_n({effects}, {variances})` → report N; if N < 5*k → flag publication bias concern.
+   - Source diversity: if ≥50% sources from same author group → flag.
 
-10. **Flag gaps:** BLOCKING / SIGNIFICANT / MINOR with concrete next steps.
+12. **Flag gaps:** BLOCKING / SIGNIFICANT / MINOR with concrete next steps.
 
-11. **Content density:** do not repeat >20% of content from prior stages. Use forward references: "see S5 in 03-source-verification.md §Credibility".
+13. **Content density:** do not repeat >20% of content from prior stages. Use forward references: "see S5 in 03-source-verification.md §Credibility".
 
-12. Fill template. `checklist_update(id=9, status="completed")`.
+14. Fill template. `checklist_update(id=9, status="completed")`.
 
 ---
 
@@ -420,6 +430,15 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8 failures must be re
 **GATE-12 — Meta-analysis self-test.** If `meta_analysis != "never"`:
 - `exec_shell(command: "python3 {SKILL_DIR}/scripts/meta_analysis.py --self-test")` → must return exit code 0. FAIL if non-zero.
 - If `meta_analysis == "never"`: SKIP.
+
+**GATE-13 — GRADE completeness.** Verify every key finding has a GRADE rating:
+- `grep_files(pattern="GRADE Certainty", path="{session_dir}/04-synthesis.md")` → count matches.
+- Expected count = number of K-findings. WARNING if mismatch; FAIL if 0.
+- Qualitative RQ: SKIP.
+
+**GATE-14 — Sensitivity flagging.** If meta-analysis ran:
+- `grep_files(pattern="Leave-one-out", path="{session_dir}/04-synthesis.md")` → must return match if ≥5 studies. WARNING if absent.
+- `grep_files(pattern="Fail-safe", path="{session_dir}/04-synthesis.md")` → must return match. WARNING if absent.
 
 `checklist_update(id=11, status="completed")`.
 
