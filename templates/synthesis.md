@@ -43,6 +43,9 @@ timestamp_utc: {iso8601_utc}
 
 **Confidence:** HIGH / MEDIUM / LOW / SPECULATIVE — {rationale per `references/iron-rule-c.md` §Confidence Language Scale}
 
+**Verbatim evidence:** "{exact quote from source}" — {source_id}, §{section}, p. {page}
+*Only for STRONG/MODERATE claims. Omit for WEAK/SPECULATIVE. For STRONG claims, this MUST be a V-grade (verbatim) extraction from deep reading. See `references/deep-reading.md` §Textual Evidence Taxonomy.*
+
 ---
 
 ### K2: {finding_title}

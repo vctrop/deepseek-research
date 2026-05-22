@@ -120,5 +120,40 @@ agent_open(name="dsr-grey", model="deepseek-v4-flash",
 
 ---
 
+## Stage 3.5: dsr-deep-read (Deep Source Reading)
+
+One sub-agent per included source. Dispatched in parallel by the orchestrator
+after Stage 3 verification.
+
+```
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-deep-read', source_id='{source_id}', source_path_or_url='{source_path_or_url}', source_title='{source_title}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}'))")
+```
+
+```
+agent_open(name="dsr-deep-read-{source_id}", model="deepseek-v4-pro",
+  allowed_tools=["rlm_open","rlm_eval","rlm_configure","rlm_close","read_file","fetch_url","handle_read","write_file","grep_files"],
+  prompt=<output from code_execution above>)
+```
+
+**Model:** Pro (not Flash). Deep reading requires careful claim extraction,
+evidence grading, and internal consistency checking — these are judgment tasks,
+not mechanical search. Use `"Think carefully about claim extraction and evidence grading."`
+
+**Parallel dispatch:** Stage 3.5 dispatches all deep read sub-agents in a single
+turn, one per source. If >10 sources, batch into groups of 10.
+
+**Tools:** `rlm_open`/`rlm_eval`/`rlm_close` for T3/T4 documents;
+`read_file` for T1/T2; `fetch_url` for web sources; `handle_read` for
+RLM output retrieval; `write_file` for the output markdown.
+
+**Output:** `{session_dir}/deep-reads/{source_id}.md` per
+`references/deep-reading.md` §Output Contract.
+
+**Failure modes:** The sub-agent writes INACCESSIBLE, PARTIAL, or FAILED
+status to the output file rather than crashing. See `references/deep-reading.md`
+§Failure modes.
+
+---
+
 Template names accepted by `build_subagent_prompt()`:
-`"dsr-bibliography"`, `"dsr-web"`, `"dsr-code"`, `"dsr-da"`, `"dsr-grey"`, `"dsr-tiebreak"`
+`"dsr-bibliography"`, `"dsr-web"`, `"dsr-code"`, `"dsr-da"`, `"dsr-grey"`, `"dsr-tiebreak"`, `"dsr-deep-read"`

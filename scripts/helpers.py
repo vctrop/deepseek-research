@@ -234,6 +234,9 @@ def build_subagent_prompt(
       - dsr-web: kwargs = {rq_text, main_topic}
       - dsr-code: kwargs = {rq_text}
       - dsr-da: kwargs = {session_dir, skill_dir}
+      - dsr-grey: kwargs = {rq_text, main_topic}
+      - dsr-tiebreak: kwargs = {rq_text, bibliography_path, disagreement_list}
+      - dsr-deep-read: kwargs = {source_id, source_path_or_url, source_title, rq_text, skill_dir}
     """
     prompts = {
         "dsr-bibliography": _build_bibliography_prompt,
@@ -242,6 +245,7 @@ def build_subagent_prompt(
         "dsr-da": _build_da_prompt,
         "dsr-grey": _build_grey_prompt,
         "dsr-tiebreak": _build_tiebreak_prompt,
+        "dsr-deep-read": _build_deep_read_prompt,
     }
     builder = prompts.get(template_name)
     if builder is None:
@@ -435,3 +439,88 @@ Rules:
 - Grey literature has higher false-positive rate. Apply stricter relevance threshold (≥4 to include).
 - Prefer sources with DOI or persistent identifier over ephemeral URLs.
 - Flag retraction/withdrawal notices if found."""
+
+
+def _build_deep_read_prompt(
+    source_id: str,
+    source_path_or_url: str,
+    source_title: str,
+    rq_text: str,
+    skill_dir: str,
+) -> str:
+    """Build a deep reading sub-agent prompt for a single source.
+
+    The sub-agent processes the full document via RLM chunking (for T3/T4)
+    or direct reading (for T1/T2), extracts claims with verbatim quotes,
+    checks internal consistency, and writes a structured output file.
+
+    Args:
+        source_id: Source identifier from Stage 2 inventory (e.g., "S3", "W7").
+        source_path_or_url: File path (bibliography) or URL (web source).
+        source_title: Human-readable title of the source.
+        rq_text: Full research question text for relevance filtering.
+        skill_dir: Path to the skill directory (for template and reference paths).
+    """
+    return f"""Deep-read source {source_id} for relevance to RQ: {rq_text}
+
+Source title: {source_title}
+Source location: {source_path_or_url}
+
+## Instructions
+
+1. Read the methodology reference:
+   `read_file("{skill_dir}/references/deep-reading.md")`
+   Pay special attention to: Document Size Tiers, Textual Evidence Taxonomy,
+   Internal Consistency Checks, and RLM Chunking Contract.
+
+2. Determine the document tier:
+   - Fetch or read the first 2KB of the document.
+   - Estimate total size from headers or file metadata.
+   - Classify as T1 (<5KB), T2 (5-50KB), T3 (50-200KB), or T4 (>200KB).
+
+3. Process according to tier:
+   - **T1/T2:** Read the full document directly with `read_file`.
+   - **T3:** `rlm_open` → `rlm_configure(output_feedback="metadata")` → chunk
+     with 8K chars + 1K overlap → `sub_query_batch(dependency_mode="independent")`
+     for claim extraction → `rlm_close`.
+   - **T4:** Selective reading: chunk ToC/intro/conclusion first to identify
+     relevant sections, then deep-read only those sections.
+
+4. Extract claims:
+   For each claim relevant to the RQ, extract:
+   - Verbatim quote (exact text from source)
+   - Evidence grade: V (Verbatim), P (Paraphrase with context),
+     I (Inference from data/figures), or M (Mathematical — theorem/proof/equation)
+   - Section reference (§X.Y or chapter name)
+   - Page/line reference if available
+
+5. Check internal consistency:
+   - Claim-claim: any two claims contradict each other?
+   - Claim-data: reported numbers match tables/figures?
+   - Claim-method: conclusion follows from method?
+   - Abstract-body: abstract accurately represents body?
+
+6. Flag mathematical claims:
+   Any M-grade claim MUST be flagged with:
+   "⚠ MATHEMATICAL — requires human verification. The LLM cannot verify mathematical proofs."
+
+7. Write output:
+   Use the template at `{skill_dir}/templates/source-deep-read.md`.
+   Fill every section. Write to `{{session_dir}}/deep-reads/{source_id}.md`.
+
+## Output contract
+
+- File path: `{{session_dir}}/deep-reads/{source_id}.md`
+- Format: Strictly follow the template structure
+- Every claim in the Extracted Claims table MUST include a verbatim quote
+- Internal consistency section: report 0 issues if none found (don't omit)
+- Mathematical claims: flag if present; state "None" if absent
+- Overall assessment: COMPREHENSIVE / PARTIAL / MINIMAL with one-sentence rationale
+
+## Failure handling
+
+- If document is inaccessible (HTTP error, file not found, paywall):
+  Write INACCESSIBLE status with reason. Do NOT fabricate claims.
+- If RLM fails: Write FAILED status with error message.
+- If T4 with >50% sections skipped: Write PARTIAL with coverage percentage.
+"""

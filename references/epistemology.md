@@ -207,3 +207,37 @@ institution, or funding source (COI contamination).
 See `references/risk-of-bias.md` §RoB → Evidence Strength Mapping for the
 full modifier table. Summary: Low RoB → no change; Some concerns → drop one
 evidence strength level; High → drop two levels; Critical → exclude from evidence.
+
+---
+
+## Textual Evidence
+
+As of Stage 3.5 (Deep Source Reading), the pipeline distinguishes between
+*hearing about* a source and *reading* it. The Evidence Strength Matrix above
+classifies claims by venue and evidentiary basis — but before a claim can be
+assigned STRONG evidence strength, it must be anchored to **verbatim text**
+extracted from the source body.
+
+### Evidence Grades (Stage 3.5)
+
+Deep reading assigns each extracted claim a textual evidence grade that
+constrains its maximum evidence strength in synthesis:
+
+| Textual grade | Max evidence strength in Stage 4 | Requires |
+|--------------|----------------------------------|----------|
+| **V — Verbatim** | STRONG | Exact quote with section/page/line reference |
+| **P — Paraphrase with context** | MODERATE | Restated claim with surrounding context cited |
+| **I — Inference** | WEAK | Derived from data/figures/tables; requires cross-validation |
+| **M — Mathematical** | LOW (capped) | Theorem/proof/equation flagged for human verification |
+
+### Human Verifiability
+
+A claim classified as STRONG in the final report must be traceable to a
+V-grade extraction from a deep-read source. The verbatim quote, source
+identifier, and section reference enable a human reviewer to verify the
+claim without re-executing the research pipeline.
+
+This requirement is enforced by GATE-18 at Close.
+
+See `references/deep-reading.md` for the full deep reading epistemology,
+document size tiers, RLM chunking strategy, and internal consistency checks.
