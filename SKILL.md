@@ -44,6 +44,7 @@ Generic — no project-specific infrastructure dependencies.
 | Model matrix + thinking budget | `references/model-matrix.md` | Pipeline start |
 | Context budget + RLM thresholds | `references/context-budget.md` | Continuous |
 | Sub-agent prompts (Stage 2, Stage 4.5) | `references/subagent-prompts.md` | Stages 2, 4.5 |
+| Python helpers (SHA256, index ops, prompt builder) | `scripts/helpers.py` | Stages 1, 1.5, 2, 2.5, 5 |
 
 **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 
@@ -86,14 +87,11 @@ Generic — no project-specific infrastructure dependencies.
     - `codebase`: always available
     - `web`: try `web_search("test")` — if fails, mark "web unavailable", continue offline
 13. Fill template completely. Write `01-rq-brief.md`.
-14. **Pre-register:** Compute SHA256 of the written file via `code_execution`:
-    ```python
-    import hashlib
-    with open("{session_dir}/01-rq-brief.md", "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-    print(digest)
+14. **Pre-register:** Compute SHA256 via `helpers.py`:
     ```
-    Record in the file and in `MANIFEST.txt`.
+    code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import compute_sha256; print(compute_sha256('{session_dir}/01-rq-brief.md'))")
+    ```
+    Record digest in the file and in `MANIFEST.txt`.
 15. `checklist_update(id=1, status="completed")`.
 
 ---
@@ -112,16 +110,9 @@ Generic — no project-specific infrastructure dependencies.
    exec_shell(command: "python3 {SKILL_DIR}/scripts/index_sources.py init --base-dir {bibliography_path}")
    ```
 3. Scan for unindexed files. If found, emit warning with count.
-4. Extract keywords from RQ + sub-questions. Use `code_execution` to query safely:
-   ```python
-   import subprocess, json
-   result = subprocess.run([
-       "python3", f"{SKILL_DIR}/scripts/index_sources.py", "query",
-       "--base-dir", bibliography_path,
-       "--keywords", comma_separated_keywords,
-       "--top", "20"
-   ], capture_output=True, text=True)
-   candidates = json.loads(result.stdout)
+4. Extract keywords from RQ + sub-questions. Query via `helpers.py` (no shell interpolation):
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import query_index; import json; print(json.dumps(query_index('{SKILL_DIR}', '{bibliography_path}', '{comma_separated_keywords}', 20)))")
    ```
    **Never interpolate keywords directly into `exec_shell` — shell injection risk (anti-pattern #11).**
 5. LLM relevance judgment for each candidate (relevance ≥ 3 → `local_sources`).
@@ -167,16 +158,11 @@ Generic — no project-specific infrastructure dependencies.
 **Condition:** Run ONLY if `persist_sources == true` AND `dsr-bibliography` was dispatched. Otherwise skip.
 
 1. Extract `persistence_manifest` from `dsr-bibliography` output.
-2. Process `new_sources` — for each, verify file exists, then `add_source` via stdin JSON using `code_execution`:
-   ```python
-   import subprocess, json
-   add_payload = {"source_type": "...", "file_path": "...", "entry": {...}}
-   result = subprocess.run(
-       ["python3", f"{SKILL_DIR}/scripts/index_sources.py", "add", "--base-dir", bibliography_path],
-       input=json.dumps(add_payload), capture_output=True, text=True
-   )
+2. Process `new_sources` — for each, verify file exists, then add via `helpers.py`:
    ```
-   **Never pipe JSON through shell — use `code_execution` or Python `subprocess` with list arguments.**
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import add_source_to_index; import json; print(json.dumps(add_source_to_index('{SKILL_DIR}', '{bibliography_path}', 'paper', '/abs/path/to/file.pdf', {entry_dict})))")
+   ```
+   **Never pipe JSON through shell — use `code_execution` with `helpers.py`.**
 3. Process `reused_local` — update sessions_used for each.
 4. Emit summary: "Corpus updated: {N} new, {M} reused."
 5. `checklist_update(id=4, status="completed")`.
@@ -269,18 +255,9 @@ Skip if Stage 2 found 0 sources.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/report.md")`.
 2. Fill from synthesis (after Devil's Advocate revisions). Every claim must use qualified language per `references/iron-rule-c.md`.
-3. **Update session index** via `code_execution`:
-   ```python
-   import json
-   with open(session_index) as f:
-       sessions = json.load(f)
-   sessions.append({
-       "slug": slug, "date": date, "rq": rq_summary,
-       "verdict": verdict_summary, "sources_used": sources_count,
-       "review_type": review_type, "rq_sha256": rq_sha256
-   })
-   with open(session_index, 'w') as f:
-       json.dump(sessions, f, indent=2)
+3. **Update session index** via `helpers.py`:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import update_session_index; print(update_session_index('{session_index_path}', {{'slug': '{slug}', 'date': '{date}', 'rq': '{rq_summary}', 'verdict': '{verdict_summary}', 'sources_used': {sources_count}, 'review_type': '{review_type}', 'rq_sha256': '{rq_sha256}'}}))")
    ```
 4. No knowledge entity creation. Report is the final artifact.
 5. `checklist_update(id=8, status="completed")`.

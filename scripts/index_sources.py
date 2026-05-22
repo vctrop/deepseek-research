@@ -91,8 +91,10 @@ def _all_indexed_ids(base_dir: Path) -> set[str]:
 
 
 def _tokenize(text: str) -> list[str]:
-    """Split text on non-alphanumeric chars and lowercase."""
-    return [t.lower() for t in re.split(r"[^a-zA-Z0-9]+", text) if t]
+    """Split text on non-alphanumeric chars and lowercase.
+    Unicode-aware: uses \w (word characters) with re.UNICODE flag.
+    """
+    return [t.lower() for t in re.findall(r"\w+", text, re.UNICODE) if t]
 
 
 # ---------------------------------------------------------------------------

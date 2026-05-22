@@ -43,6 +43,11 @@ grep_files(pattern="\\b(validated|proved|confirmed|demonstrated|ensures|guarante
 **Pass 2:** For each match, check for qualifying context (source + method + conditions).
 Report only unqualified matches as violations.
 
+**Known false positives (Pass 1 → cleared by Pass 2):**
+- `pre-validated`, `re-validated` — compound words where `\b` matches at the hyphen boundary
+- `"proved by [citation]"` — matched as bare, but citation provides qualifying context
+- `"The validated model"` in a sentence that continues with `"was independently tested by..."` — context may be in surrounding sentences
+
 ---
 
 ## Qualified Replacements
