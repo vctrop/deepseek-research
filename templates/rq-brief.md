@@ -53,6 +53,23 @@ Every construct in the RQ must have observable criteria. See `references/epistem
 
 **Limitations:** {constructs that could NOT be operationalized, and why}
 
+## Analysis Plan
+
+Pre-registered before source discovery. See `references/epistemic-limitations.md` §L6.
+
+| Element | Specification |
+|---------|---------------|
+| **Synthesis method** | {narrative / quantitative (fixed-effects) / quantitative (random-effects) / mixed} |
+| **Effect size metric** | {e.g., Cohen's d, Hedges' g, mean difference, % improvement — or "N/A (narrative)"} |
+| **Inclusion threshold** | {e.g., "relevance ≥ 3 on 5-point scale", "studies published after 2020"} |
+| **Exclusion criteria** | {e.g., "no empirical data", "duplicate of already-included study"} |
+| **Saturation rule** | {e.g., "stop when last 5 sources add no new claims"} |
+| **Heterogeneity handling** | {e.g., "random-effects if I² > 30%", "subgroup by vehicle type"} |
+| **Sensitivity analyses** | {e.g., "leave-one-out for outlier detection", "stratify by RoB rating"} |
+| **Hypothesis direction** | {if applicable: "one-tailed: X outperforms Y" or "two-tailed: X differs from Y"} |
+
+**Narrative-only RQs:** Mark all quantitative entries as "N/A (narrative synthesis)."
+
 ## Scope
 
 **In scope:**

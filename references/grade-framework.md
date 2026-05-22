@@ -4,6 +4,19 @@ Loaded by the orchestrator at Stage 4. Rates the overall certainty of evidence
 for each key finding using an adapted GRADE (Grading of Recommendations,
 Assessment, Development, and Evaluation) framework.
 
+> **⚠ EXPERIMENTAL ADAPTATION NOTICE**
+>
+> Original GRADE: clinical medicine (BMJ, WHO, Cochrane) — validated through
+> decades of use, endorsed by >100 organizations worldwide.
+>
+> This adaptation: engineering/simulation evidence, with modified evidence
+> hierarchy and domain criteria. **This adaptation has not been validated by
+> any external body.** It is a structured thinking tool, not an authoritative
+> rating system. Use it to organize your reasoning about evidence quality,
+> not to claim GRADE-certified certainty.
+>
+> See `references/epistemic-limitations.md` §L5 for the full disclosure.
+
 Original GRADE: clinical medicine (BMJ, WHO, Cochrane).
 This adaptation: engineering/simulation evidence, with modified evidence
 hierarchy and domain criteria.
