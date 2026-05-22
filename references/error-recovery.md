@@ -23,3 +23,6 @@ Loaded at pipeline start. Referenced inline when an error occurs.
 | Sub-agent returns free-text instead of structured table | Re-dispatch with stricter format instruction; if fails twice, orchestrator parses manually |
 | RLM session hangs | `rlm_close` and re-open with shorter timeout |
 | Config file malformed | Use defaults; warn user |
+| `protocol_registry.py` not found (Stage 1.6 crashes with ImportError) | Skip Stage 1.6; log warning; continue with local SHA256-only pre-registration |
+| `helpers.py` not found (multiple stages affected) | Fatal — abort pipeline; skill installation is corrupted |
+| Scipy not available (kappa computation) | Fall back to manual contingency-table computation in helpers.py (already built-in) |

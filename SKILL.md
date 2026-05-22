@@ -17,6 +17,9 @@ Generic — no project-specific infrastructure dependencies.
 **Stage 2 sub-agents (discovery):**
 `web_search`, `fetch_url`, `grep_files`, `read_file`, `file_search`, `rlm_open`, `rlm_eval`, `rlm_close`, `write_file`
 
+**Stage 2.1 sub-agent (tiebreak):**
+`grep_files`, `read_file`, `file_search`, `write_file`
+
 **Stage 4.5 sub-agent (Devil's Advocate):**
 `read_file`, `write_file`
 
@@ -34,20 +37,20 @@ Generic — no project-specific infrastructure dependencies.
 
 ## Quick Reference
 
-| Resource | Path | When to load |
-|----------|------|--------------|
-| Configuration | `references/configuration.md` | Stage 1 |
-| Epistemology (evidence matrix, knowledge types, saturation, negative search) | `references/epistemology.md` | Stages 1, 3, 4 |
-| IRON RULE C (qualified language) | `references/iron-rule-c.md` | Stages 4, 5, Close |
-| Anti-patterns | `references/anti-patterns.md` | Pipeline start |
-| Error recovery | `references/error-recovery.md` | On error |
-| Model matrix + thinking budget | `references/model-matrix.md` | Pipeline start |
-| Context budget + RLM thresholds | `references/context-budget.md` | Continuous |
-| Sub-agent prompts (Stage 2, Stage 4.5) | `references/subagent-prompts.md` | Stages 2, 4.5 |
-| Python helpers (SHA256, index ops, prompt builder) | `scripts/helpers.py` | Stages 1, 1.5, 2, 2.5, 5 |
-| PRESS search strategy peer review | `references/press-checklist.md` | Stage 2.2 |
-| Risk of Bias assessment | `references/risk-of-bias.md` | Stage 3 |
-| Protocol registry (OSF/local) | `scripts/protocol_registry.py` | Stage 1.6 |
+| Resource | Path |
+|----------|------|
+| Configuration | `references/configuration.md` |
+| Epistemology (evidence matrix, knowledge types, saturation, negative search) | `references/epistemology.md` |
+| IRON RULE C (qualified language) | `references/iron-rule-c.md` |
+| Anti-patterns | `references/anti-patterns.md` |
+| Error recovery | `references/error-recovery.md` |
+| Model matrix + thinking budget | `references/model-matrix.md` |
+| Context budget + RLM thresholds | `references/context-budget.md` |
+| Sub-agent prompts | `references/subagent-prompts.md` |
+| Python helpers (SHA256, index ops, kappa, prompt builder) | `scripts/helpers.py` |
+| PRESS search strategy peer review | `references/press-checklist.md` |
+| Risk of Bias assessment | `references/risk-of-bias.md` |
+| Protocol registry (OSF/local) | `scripts/protocol_registry.py` |
 
 **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 
