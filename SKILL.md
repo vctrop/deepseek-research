@@ -51,6 +51,7 @@ Generic — no project-specific infrastructure dependencies.
 | PRESS search strategy peer review | `references/press-checklist.md` |
 | Risk of Bias assessment | `references/risk-of-bias.md` |
 | Protocol registry (OSF/local) | `scripts/protocol_registry.py` |
+| Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` |
 
 **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 
@@ -309,13 +310,17 @@ Skip if Stage 2 found 0 sources.
 
 7. **Extract constants:** numerical values with units, sources, evidence strength, confidence.
 
-8. **Assess consensus:** per `references/epistemology.md` §Consensus Assessment Rules. Use CONSENSUS / MAJORITY / DIVERGENT / INSUFFICIENT labels.
+8. **Quantitative synthesis (meta-analysis).** Trigger when RQ type = predictive/causal AND ≥3 sources report same effect with variance:
+   - Load `read_file("{SKILL_DIR}/scripts/meta_analysis.py")` (header only, for function signatures).
+   - `code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from meta_analysis import random_effects_pool, forest_plot_text, heterogeneity_interpretation; import json; result = random_effects_pool({effects}, {variances}); print(json.dumps(result))")`
+   - Write forest plot and heterogeneity assessment to the synthesis template.
+9. **Assess consensus:** per `references/epistemology.md` §Consensus Assessment Rules. Use CONSENSUS / MAJORITY / DIVERGENT / INSUFFICIENT labels.
 
-9. **Flag gaps:** BLOCKING / SIGNIFICANT / MINOR with concrete next steps.
+10. **Flag gaps:** BLOCKING / SIGNIFICANT / MINOR with concrete next steps.
 
-10. **Content density:** do not repeat >20% of content from prior stages. Use forward references: "see S5 in 03-source-verification.md §Credibility".
+11. **Content density:** do not repeat >20% of content from prior stages. Use forward references: "see S5 in 03-source-verification.md §Credibility".
 
-11. Fill template. `checklist_update(id=9, status="completed")`.
+12. Fill template. `checklist_update(id=9, status="completed")`.
 
 ---
 
@@ -411,6 +416,10 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8 failures must be re
 - `grep_files(pattern="registration", path="{session_dir}/MANIFEST.txt")` → must return match. FAIL if absent.
 - If `protocol_registry == "osf"`: `fetch_url({doi_url})` → must return 200. WARNING if fails (OSF may be down).
 - If `protocol_registry == "local"`: verify `protocol-registration.json` exists and is valid JSON (`validate_data`). FAIL if absent.
+
+**GATE-12 — Meta-analysis self-test.** If `meta_analysis != "never"`:
+- `exec_shell(command: "python3 {SKILL_DIR}/scripts/meta_analysis.py --self-test")` → must return exit code 0. FAIL if non-zero.
+- If `meta_analysis == "never"`: SKIP.
 
 `checklist_update(id=11, status="completed")`.
 

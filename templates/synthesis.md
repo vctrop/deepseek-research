@@ -51,6 +51,18 @@ timestamp_utc: {iso8601_utc}
 
 ---
 
+## Quantitative Synthesis (Meta-Analysis)
+
+*Only when RQ is predictive/causal AND ≥3 sources report same effect with variance. Otherwise omit this section.*
+
+### Pooled Estimate (Random-Effects, DerSimonian-Laird)
+
+{forest_plot_text}
+
+**Heterogeneity:** I² = {I2}% ({heterogeneity_interpretation}), τ² = {tau2}, Q({Q_df}) = {Q}, p = {Q_pvalue}
+
+---
+
 ## Numerical Constants
 
 *If RQ is qualitative, leave this section with the note below:*
