@@ -1,10 +1,11 @@
 ---
 target: SPEC-001 Professional Research Team Parity
-plan_version: 1.0
+plan_version: 2.0
 created: 2026-05-21
-status: ready_for_review
-estimated_sessions: 8-10
-skill_current: v1.0 (post-curto-prazo)
+updated: 2026-05-22
+status: in_progress
+estimated_sessions: 12-15
+skill_current: v1.5 (post-Phase 1)
 skill_target: v2.0.0
 ---
 
@@ -16,457 +17,215 @@ skill_target: v2.0.0
 
 | Metric | Value |
 |--------|-------|
-| SKILL.md | 344 lines |
-| Pipeline stages | Stage 1 → 1.5 → 2 → 2.5 → 3 → 4 → 4.5 → 5 → Close |
-| References | 8 files (epistemology, iron-rule-c, anti-patterns, error-recovery, model-matrix, context-budget, configuration, subagent-prompts) |
-| Templates | 7 files (rq-brief, local-corpus-triage, source-inventory, source-verification, synthesis, devils-advocate, report) |
-| Scripts | helpers.py (276 lines), index_sources.py (388 lines) |
-| Config | 8 variables in `.deepseek/deepseek-research.toml` |
-| Gates | GATE-1 through GATE-7 in Close stage |
+| SKILL.md | 533 lines |
+| Pipeline stages | Stage 1 → 1.6 → 1.5 → 2 → 2.1 → 2.2 → 2.5 → 3 → 4 → 4.5 → 4.6 → 5 → Close |
+| References | 11 files |
+| Templates | 11 files |
+| Scripts | helpers.py (437 lines), index_sources.py, protocol_registry.py, meta_analysis.py (478 lines), living_review.py |
+| Config | 17 variables in `.deepseek/deepseek-research.toml` |
+| Gates | GATE-1 through GATE-17 in Close stage |
 
 ### 0.2 General implementation rules
 
 1. **Every wave is self-contained.** A wave must leave the skill in a working state — no "broken intermediate" commits.
-2. **Templates before pipeline.** When a feature adds new output, create the template first, then wire the pipeline to fill it. Reduces rework.
-3. **Scripts before integration.** When a feature needs computation (`meta_analysis.py`), build and test the script standalone before wiring it into a Stage.
+2. **Templates before pipeline.** When a feature adds new output, create the template first, then wire the pipeline to fill it.
+3. **Scripts before integration.** When a feature needs computation, build and test the script standalone before wiring it into a Stage.
 4. **Config is additive.** New config variables default to `false`/`none`/`"auto"` so existing installs are not broken.
 5. **References before stages.** New epistemology/checklist content goes into `references/` and is referenced — never inlined into SKILL.md.
-6. **Gates are feature-specific.** Each wave adds its own verification gate to Close. No wave is complete without its gate.
-7. **SKILL.md budget:** target ≤ 500 lines after Phase 3. Current: 344. Headroom: ~150 lines for 13 features.
+6. **Gates are feature-specific.** Each wave adds its own verification gate to Close.
+7. **SKILL.md budget:** target ≤ 550 lines. Current: 533. Headroom: ~17 lines for 3 phases. Extraction to `references/pipeline-detail.md` in Phase 3 will reclaim ~150 lines.
 
-### 0.3 Dependency graph
+### 0.3 Dependency graph (phases 1–3)
 
 ```
-F4 (PRISMA) ──┐
-F5 (PRESS) ───┤
-              ├──► F2 (Dual Screen) ──┐
-F3 (RoB) ─────┤                       ├──► A1 (Meta) ──┬──► A3 (Sensitivity)
-              └──► F1 (Protocol) ─────┘                ├──► A4 (Pub Bias)
-                                                       ├──► A2 (GRADE) ──┐
-A5 (Grey Lit) ────────────────────────────────────────┘                │
-                                                                        └──► C1 (Living)
+Phase 1 (Deep Source Reading)
+  ├── references/deep-reading.md
+  ├── templates/source-deep-read.md
+  ├── helpers.py::_build_deep_read_prompt()
+  ├── SKILL.md §Stage 3.5
+  ├── SKILL.md §Stage 3 (modified)
+  ├── SKILL.md §Stage 4 (modified)
+  └── SKILL.md §GATE-18
 
-C2 (Outputs) ── independent
-C3 (Stakeholder) ── independent
+Phase 2 (Epistemic Honesty)
+  ├── references/epistemic-limitations.md
+  ├── SKILL.md §Epistemic Limitations (intro)
+  ├── references/grade-framework.md (modified)
+  ├── SKILL.md §Stage 1.6 (modified pre-registration)
+  ├── SKILL.md §Stage 4 (meta-analysis marked exploratory)
+  └── SKILL.md §GATE-18 (human-in-the-loop)
+
+Phase 3 (Skill Craftsmanship)
+  ├── references/pipeline-detail.md (extracted)
+  ├── references/placeholders.md (new)
+  ├── SKILL.md (slimmed to ~380 lines)
+  ├── SKILL.md §Quick Reference (conditional loading)
+  ├── SKILL.md §Stage 4 (RLM for multi-source synthesis)
+  └── SKILL.md §Close (ids 10/11 split)
 ```
 
 ---
 
-## Phase 1: v1.5 — Foundational Credibility
+## Phase 1: Deep Source Reading (v1.6)
 
-**Goal:** The skill can legitimately say "systematic review" without a
-methodologist raising an eyebrow. PRISMA flow, dual screening, structured
-risk of bias, protocol pre-registration, search strategy peer review.
+**Goal:** A skill lê artigos, livros e relatórios em profundidade, não apenas
+snippets. Todo claim no relatório final é respaldado por citação textual
+(verbatim) extraída diretamente da fonte, permitindo verificação humana.
 
-**Gate:** All 5 Tier-1 features passing their individual gates. PRISMA compliance ≥ 80%.
+**Problem addressed:** Epistemic problem A — "O LLM não lê papers."
+The pipeline currently judges relevance from abstracts and search snippets.
+Deep reading processes full documents via RLM, extracting claims with exact
+textual evidence and verifying internal consistency.
 
-### Wave 1.1 — Quick diagnostic wins (F4 + F5)
+**Gate:** GATE-18 passes (every STRONG/MODERATE claim has textual evidence).
+GATE-1 through GATE-17 continue to pass.
 
-**Rationale:** PRISMA flow and PRESS review are template-only changes with no
-pipeline restructuring. They establish the screening audit trail before we add
-dual screening (which will use that trail).
+### Wave 1.1 — Epistemology + Template (deep reading foundation)
 
-**Duration:** 1 session
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 1.1a | Add PRISMA flow section to `templates/source-inventory.md` | `templates/source-inventory.md` | Template renders without broken placeholders |
-| 1.1b | Add PRISMA placeholders table to template | `templates/source-inventory.md` | All `{EXCLUDED_*}`, `{FULL_TEXT}`, `{INCLUDED}`, `{QUANT}`, `{QUAL}` placeholders documented |
-| 1.1c | Update Stage 2 consolidation step in SKILL.md to populate PRISMA counts | `SKILL.md` §Stage 2 | Orchestrator instructions reference PRISMA section |
-| 1.1d | Add PRESS checklist to `references/` | `references/press-checklist.md` (new) | File exists with 6 PRESS 2015 elements |
-| 1.1e | Add Stage 2.2 (PRESS Review) to SKILL.md pipeline | `SKILL.md` §Stage 2 | New sub-stage between consolidation and checklist update |
-| 1.1f | Add GATE-8: PRISMA compliance check to Close | `SKILL.md` §Close | Gate counts PRISMA items present ÷ total items expected |
-| 1.1g | Update checklist in Stage 1 to include Stage 2.2 item | `SKILL.md` §Stage 1 | Checklist has 9 items (was 8) |
-
-**Acceptance criteria:**
-- `02-source-inventory.md` renders a PRISMA flow with all 8 line items populated (not "n = 0" for everything)
-- PRESS checklist applied to ≥1 search query per active axis
-- GATE-8 reports compliance percentage, warns if <80%
-
-**Files touched:** `templates/source-inventory.md`, `SKILL.md`, `references/press-checklist.md` (new)
-
----
-
-### Wave 1.2 — Risk of Bias matrix (F3)
-
-**Rationale:** F3 replaces the ad-hoc COI Register with a domain-appropriate
-structured assessment. This is a prerequisite for A1 (meta-analysis uses RoB
-for study weighting) and A2 (GRADE uses RoB as a downgrade domain).
+**Rationale:** Define what deep reading means before wiring it into the pipeline.
+Template establishes the output contract that Stage 3.5 and Stage 4 will consume.
 
 **Duration:** 1 session
 
 | Step | Action | File(s) | Verification |
 |------|--------|---------|-------------|
-| 1.2a | Create `references/risk-of-bias.md` with 4 study-type tool definitions | `references/risk-of-bias.md` (new) | File defines domains for algorithm, empirical, simulation, survey studies |
-| 1.2b | Update `templates/source-verification.md`: replace COI Register with Risk of Bias Assessment table | `templates/source-verification.md` | Template has RoB table with study-type-specific domain columns |
-| 1.2c | Update `templates/synthesis.md`: replace source-tier-only columns with RoB column | `templates/synthesis.md` | Source Usage table gains `RoB` column |
-| 1.2d | Update Stage 3 instructions in SKILL.md to reference RoB instead of COI | `SKILL.md` §Stage 3 | Step 6 references `references/risk-of-bias.md` |
-| 1.2e | Update `references/epistemology.md`: add RoB-to-evidence-strength mapping | `references/epistemology.md` | New §Mapping Risk of Bias to Evidence Strength |
-| 1.2f | Update Quick Reference table in SKILL.md | `SKILL.md` §Quick Reference | Risk of Bias entry added |
-| 1.2g | Add GATE-9: RoB completeness check | `SKILL.md` §Close | Gate verifies every source has a completed RoB assessment |
+| 1.1a | Create `references/deep-reading.md` — epistemology of deep source reading | `references/deep-reading.md` (new) | Covers: RLM chunking strategy, textual evidence taxonomy (verbatim/paraphrase/inference), internal consistency checks, mathematical claim verification guidance |
+| 1.1b | Create `templates/source-deep-read.md` — per-source deep read output | `templates/source-deep-read.md` (new) | Template has: metadata header, extracted claims with verbatim quotes, consistency notes, mathematical claims flag, evidence grade per claim |
+| 1.1c | Add "textual evidence" section to `references/epistemology.md` | `references/epistemology.md` | New §Textual Evidence linking to deep-reading.md |
+| 1.1d | Add `deep_reading` config variable (default: `true`) | `references/configuration.md` | Documented with other config vars |
 
 **Acceptance criteria:**
-- Every source in `03-source-verification.md` has domain ratings + overall RoB
-- At least 2 different study types correctly classified across a test session
-- COI Register is fully removed (grep confirms zero `COI Register` occurrences outside references)
-- GATE-9 passes (100% source coverage)
+- `deep-reading.md` defines chunking strategy for 4 document size tiers
+- `source-deep-read.md` template renders without broken placeholders
+- Epistemology reference cross-links to deep reading
 
-**Files touched:** `references/risk-of-bias.md` (new), `templates/source-verification.md`, `templates/synthesis.md`, `templates/report.md`, `SKILL.md`, `references/epistemology.md`
+### Wave 1.2 — Script + Sub-agent Prompt
 
----
-
-### Wave 1.3 — Dual independent screening (F2)
-
-**Rationale:** This is the highest-impact credibility change. Requires pipeline
-restructuring: Stage 2 splits into dispatch + reconciliation + tiebreak.
+**Rationale:** The deep reader is a sub-agent that processes one source at a time.
+Build the prompt builder first, then integrate.
 
 **Duration:** 1 session
 
 | Step | Action | File(s) | Verification |
 |------|--------|---------|-------------|
-| 1.3a | Add `dual_screening` and `agreement_threshold` to config reference | `references/configuration.md` | Both variables documented with defaults |
-| 1.3b | Update `references/subagent-prompts.md`: add `dsr-bib-1`, `dsr-bib-2`, `dsr-bib-tiebreak` entries | `references/subagent-prompts.md` | 3 new prompt templates |
-| 1.3c | Add `_build_tiebreak_prompt()` to `scripts/helpers.py` | `scripts/helpers.py` | New function in `build_subagent_prompt` dispatch table |
-| 1.3d | Add Cohen's kappa to `scripts/helpers.py` | `scripts/helpers.py` | `compute_cohens_kappa(include_a, include_b, n_total)` — pure Python, no deps |
-| 1.3e | Restructure Stage 2 in SKILL.md: dispatch → reconcile → tiebreak | `SKILL.md` §Stage 2 | Clear branching: if dual_screening=true, dispatch 2; else dispatch 1 (backward compat) |
-| 1.3f | Add Stage 2.1 (Reconciliation) to SKILL.md | `SKILL.md` §Stage 2 | Computes agreement %, dispatches tiebreak for disagreements |
-| 1.3g | Add "Screening Reliability" section to `templates/source-inventory.md` | `templates/source-inventory.md` | Reports κ, agreement %, disagreement count |
-| 1.3h | Add GATE-10: Inter-rater reliability threshold check | `SKILL.md` §Close | If κ < agreement_threshold → WARNING (not FAIL — research can proceed with caution) |
-| 1.3i | Update checklist in Stage 1 for new sub-stages (2.1) | `SKILL.md` §Stage 1 | Checklist covers dual-screen path |
+| 1.2a | Add `_build_deep_read_prompt()` to `helpers.py` | `scripts/helpers.py` | Function accepts source_id, source_path, rq_text, skill_dir; returns prompt string |
+| 1.2b | Register `"dsr-deep-read"` in `build_subagent_prompt()` dispatch table | `scripts/helpers.py` | `build_subagent_prompt('dsr-deep-read', ...)` returns valid prompt |
+| 1.2c | Add deep reader prompt specification to `references/subagent-prompts.md` | `references/subagent-prompts.md` | Documents the `code_execution` + `agent_open` invocation pattern |
 
 **Acceptance criteria:**
-- With `dual_screening = true`: 2 bib sub-agents dispatched, reconciliation runs, κ reported
-- With `dual_screening = false`: backward-compatible single-agent path (unchanged behavior)
-- κ computation verified against known test case (2 raters, 100 items, 85 agree → κ ≈ 0.70)
-- Tiebreak sub-agent resolves ≥1 disagreement in test session
+- `build_subagent_prompt('dsr-deep-read', source_id='S1', source_path='...', rq_text='...', skill_dir='...')` returns non-empty prompt
+- Prompt includes RLM chunking instructions, output format contract, and evidence taxonomy
 
-**Files touched:** `SKILL.md`, `references/configuration.md`, `references/subagent-prompts.md`, `scripts/helpers.py`, `templates/source-inventory.md`
+### Wave 1.3 — Pipeline Integration (Stages 3, 3.5, 4)
 
----
-
-### Wave 1.4 — Protocol pre-registration (F1)
-
-**Rationale:** Closes the credibility loop — protocol is publicly citable before
-research begins. Depends on F2+F3+F4+F5 being complete so the protocol can
-describe the full methodology.
+**Rationale:** Wire deep reading into the pipeline. Stage 3 collects sources;
+Stage 3.5 deep-reads each source in parallel; Stage 4 uses textual evidence
+in synthesis.
 
 **Duration:** 1 session
 
 | Step | Action | File(s) | Verification |
 |------|--------|---------|-------------|
-| 1.4a | Add `protocol_registry`, `osf_token`, `osf_project_id` to config reference | `references/configuration.md` | Variables documented |
-| 1.4b | Create `scripts/protocol_registry.py` — OSF API client (pure Python, stdlib `urllib`) | `scripts/protocol_registry.py` (new) | `register_protocol(osf_token, project_id, protocol_dict) → doi_url` |
-| 1.4c | Create `templates/protocol-metadata.json` — Zenodo/OSF metadata template | `templates/protocol-metadata.json` (new) | Valid JSON with all required fields |
-| 1.4d | Add Stage 1.6 (Protocol Finalize) to SKILL.md | `SKILL.md` §Stage 1 | New sub-stage after SHA256 computation |
-| 1.4e | Add `register_protocol` to `scripts/helpers.py` as thin wrapper | `scripts/helpers.py` | Delegates to `protocol_registry.py` |
-| 1.4f | Add `protocol_doi` field to session index entry format | `references/configuration.md` | Session index schema updated |
-| 1.4g | Add GATE-11: Protocol DOI resolves | `SKILL.md` §Close | `fetch_url(protocol_doi)` returns 200; SKIP if registry=none |
-| 1.4h | Update checklist for Stage 1.6 | `SKILL.md` §Stage 1 | Checklist covers protocol path |
+| 1.3a | Add Stage 3.5 to SKILL.md checklist (new id=9, shift existing ids 9→10, 10→11, 11→12, 12→13) | `SKILL.md` §Stage 1 | Checklist has 13 items with correct ids |
+| 1.3b | Add Stage 3.5 pipeline section to SKILL.md | `SKILL.md` §Stage 3.5 | Covers: condition (skip if 0 sources or deep_reading=false), dispatch (1 sub-agent per source in parallel), wait, consolidate |
+| 1.3c | Add allowed tools for Stage 3.5 sub-agents | `SKILL.md` §Allowed tools | `rlm_open`, `rlm_eval`, `rlm_close`, `read_file`, `write_file`, `handle_read` |
+| 1.3d | Modify Stage 3 to collect verbatim quotes from source text | `SKILL.md` §Stage 3 | Step added: "For each source, extract 1-2 key verbatim passages that will anchor deep reading" |
+| 1.3e | Modify Stage 4 to require textual evidence for STRONG/MODERATE claims | `SKILL.md` §Stage 4 | Each K-finding must cite verbatim quote + line/section reference from source-deep-read output |
+| 1.3f | Add GATE-18 to Close stage | `SKILL.md` §Close | Verifies ≥1 verbatim citation per STRONG/MODERATE claim; FAIL if missing |
 
 **Acceptance criteria:**
-- With `protocol_registry = "osf"` + valid token: DOI returned and recorded in MANIFEST.txt
-- With `protocol_registry = "none"`: graceful skip, SHA256-only path (backward compatible)
-- GATE-11 passes when DOI is present, SKIPs when registry is none
-
-**Files touched:** `references/configuration.md`, `scripts/protocol_registry.py` (new), `scripts/helpers.py`, `templates/protocol-metadata.json` (new), `SKILL.md`
-
----
+- Pipeline runs Stage 3 → 3.5 → 4 without broken placeholders
+- GATE-18 detects missing textual evidence
+- Backward compatible: `deep_reading = false` skips Stage 3.5 entirely, Stages 3-4 behave as v1.5
 
 ### Phase 1 Gate Summary
 
-After Wave 1.4, Close verification runs 11 gates (GATE-1 through GATE-11).
-Full PRISMA compliance (GATE-8 ≥ 80%) + RoB completeness (GATE-9 = 100%) +
-κ threshold check (GATE-10) + protocol DOI (GATE-11).
+After Wave 1.3, Close verification runs 18 gates (GATE-1 through GATE-18).
+New: GATE-18 (textual evidence for STRONG/MODERATE claims).
 
 **Phase 1 exit criteria:**
-- [ ] All 11 gates pass on a test research question
-- [ ] SKILL.md ≤ 420 lines (budget: 344 + ~76 for Phase 1 additions)
-- [ ] `cargo test`-style equivalent: `python3 scripts/helpers.py --self-test` passes
-- [ ] Backward compatibility: session with all new config vars set to `false`/`"none"` behaves identically to v1.0
+- [ ] All 18 gates pass on a test research question
+- [ ] SKILL.md ≤ 580 lines (budget: 533 + ~47 for Phase 1 additions)
+- [ ] At least 3 sources deep-read in a test session with verbatim quotes extracted
+- [ ] Backward compatibility: session with `deep_reading = false` behaves identically to v1.5
 
 ---
 
-## Phase 2: v1.7 — Professional Synthesis
+## Phase 2: Epistemic Honesty & Human Verifiability (v1.7)
 
-**Goal:** The skill delivers quantitative synthesis with proper meta-analytic
-methods, GRADE certainty ratings, sensitivity analysis, and publication bias
-detection. Grey literature axis added.
+**Goal:** A skill declara explicitamente suas limitações epistêmicas. Meta-análise
+quantitativa é marcada como exploratória. GRADE-for-engineering é declarado como
+adaptação experimental. Pre-registration inclui plano de análise. Claims STRONG
+exigem verificabilidade humana.
 
-**Prerequisites:** Phase 1 complete (F3 required for meta-analysis weighting
-and GRADE downgrade; F2 required for trustworthy source pool).
+**Problems addressed:** B (gates sintáticos, não semânticos), C (pre-registration
+incompleto), D (meta-análise frágil), G (GRADE não validado para engenharia).
 
-### Wave 2.1 — Grey literature axis (A5)
+### Wave 2.1 — Epistemic Limitations Document
 
-**Rationale:** Lowest-dependency Tier-2 feature. Can be implemented in parallel
-with meta_analysis.py development. Simple: new sub-agent + config flag.
+| Step | Action | File(s) |
+|------|--------|---------|
+| 2.1a | Create `references/epistemic-limitations.md` | New file |
+| 2.1b | Add "Epistemic Limitations" section to SKILL.md intro (5-8 lines) | `SKILL.md` |
+| 2.1c | Modify `references/grade-framework.md` — add "Adaptation Notice" header | `references/grade-framework.md` |
+| 2.1d | Modify Stage 4 meta-analysis section — mark as "exploratory/illustrative" | `SKILL.md` §Stage 4 |
 
-**Duration:** 0.5 session
+### Wave 2.2 — Enhanced Pre-registration + Human-in-the-Loop
 
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 2.1a | Add `"grey"` to `source_axes` config options | `references/configuration.md` | Documented as optional axis |
-| 2.1b | Add `dsr-grey` prompt template to `references/subagent-prompts.md` | `references/subagent-prompts.md` | Prompt includes arxiv, techrxiv, ProQuest, Google Scholar, DSpace |
-| 2.1c | Add `_build_grey_prompt()` to `scripts/helpers.py` | `scripts/helpers.py` | New function in build_subagent_prompt dispatch |
-| 2.1d | Update Stage 2 dispatch in SKILL.md: conditionally dispatch `dsr-grey` | `SKILL.md` §Stage 2 | Dispatched when `"grey"` in source_axes |
-| 2.1e | Update PRISMA flow: grey literature line populated | `templates/source-inventory.md` | Flow shows grey lit count > 0 when axis active |
+| Step | Action | File(s) |
+|------|--------|---------|
+| 2.2a | Modify Stage 1 (RQ Formulation) — add analysis plan to RQ brief | `SKILL.md` §Stage 1 |
+| 2.2b | Modify `templates/rq-brief.md` — add Analysis Plan section | `templates/rq-brief.md` |
+| 2.2c | Modify Stage 1.6 (Protocol Finalize) — include analysis plan in protocol_dict | `SKILL.md` §Stage 1.6 |
+| 2.2d | Add GATE-18 sub-check: human-verifiability for STRONG claims (verbatim quote + source location) | `SKILL.md` §Close |
 
-**Acceptance criteria:**
-- With `source_axes = [..., "grey"]`: grey sub-agent dispatched, sources returned
-- Grey sources appear in PRISMA flow as separate line item
-- Without `"grey"` in axes: no behavioral change
-
-**Files touched:** `references/configuration.md`, `references/subagent-prompts.md`, `scripts/helpers.py`, `SKILL.md`, `templates/source-inventory.md`
-
----
-
-### Wave 2.2 — Meta-analysis engine (A1)
-
-**Rationale:** The computational core of Phase 2. Must be built and validated
-before GRADE (A2) and sensitivity (A3) can use it. This is the highest-effort
-single feature in the plan.
-
-**Duration:** 1.5 sessions
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 2.2a | Create `scripts/meta_analysis.py` — pure Python, stdlib only | `scripts/meta_analysis.py` (new) | Module with 0 external dependencies |
-| 2.2b | Implement `random_effects_pool(effects, variances)` — DerSimonian-Laird | `scripts/meta_analysis.py` | Returns `{pooled, ci_lower, ci_upper, I2, tau2, Q, Q_pvalue}` |
-| 2.2c | Implement `fixed_effects_pool(effects, variances)` | `scripts/meta_analysis.py` | Inverse-variance weighted; used as fallback when I² < 25% |
-| 2.2d | Implement `forest_plot_text(effects, variances, labels)` — ASCII table | `scripts/meta_analysis.py` | Returns formatted string suitable for Markdown code block |
-| 2.2e | Implement `cochran_q(effects, variances)` — heterogeneity test | `scripts/meta_analysis.py` | Returns Q statistic and p-value (chi² approximation) |
-| 2.2f | Implement `i_squared(Q, df)` — heterogeneity index | `scripts/meta_analysis.py` | Returns I² as percentage, clamped to [0, 100] |
-| 2.2g | Implement `tau2_dl(effects, variances, fixed_weights)` — DerSimonian-Laird τ² | `scripts/meta_analysis.py` | Returns τ² estimate |
-| 2.2h | Validate against R `metafor` package on 3 test datasets | `scripts/meta_analysis.py` (embedded tests) | Pooled estimates within ±5% of R output; I² within ±3 percentage points |
-| 2.2i | Add `meta_analysis` config variable | `references/configuration.md` | `meta_analysis = "auto"` (default: trigger when ≥3 sources report same effect) |
-| 2.2j | Add "Quantitative Synthesis" sub-section to `templates/synthesis.md` | `templates/synthesis.md` | Conditional section: rendered only when meta-analysis triggers |
-| 2.2k | Update Stage 4 in SKILL.md: dispatch meta-analysis via `code_execution` | `SKILL.md` §Stage 4 | New step between constants extraction and consensus assessment |
-| 2.2l | Add "Quantitative Synthesis" section to `templates/report.md` | `templates/report.md` | Report template gains forest plot + heterogeneity section |
-| 2.2m | Add GATE-12: Meta-analysis self-test | `SKILL.md` §Close | Runs `python3 scripts/meta_analysis.py --self-test`; FAIL if tests don't pass |
-
-**Acceptance criteria:**
-- `meta_analysis.py --self-test` passes all 3 validation datasets
-- Forest plot renders correctly in Markdown (monospace alignment)
-- Meta-analysis triggers on RQ with ≥3 quantitative sources reporting same effect
-- Meta-analysis skips gracefully on qualitative RQs (no crash, no empty table)
-
-**Key implementation notes:**
-- **No numpy/scipy.** Use Welford's algorithm for variance accumulation. Chi² p-value via Wilson-Hilferty approximation (no `scipy.stats`). Matrix operations via list comprehensions.
-- **DerSimonian-Laird:** Iterative method — converges in <10 iterations for typical datasets. Implement with explicit convergence check.
-- **Test datasets:** Bundle 3 known datasets as JSON fixtures in `scripts/test-data/`:
-  1. Normand 1999 (8 studies, psychotherapy) — classic meta-analysis textbook example
-  2. Bangert-Drowns 2004 (15 studies, writing干预) — moderate heterogeneity (I² ≈ 60%)
-  3. Synthetic (5 studies, homogeneous) — I² ≈ 0%
-
-**Files touched:** `scripts/meta_analysis.py` (new, ~250 lines), `scripts/test-data/` (new, 3 JSON files), `templates/synthesis.md`, `templates/report.md`, `SKILL.md`, `references/configuration.md`
+### Phase 2 exit criteria:
+- [ ] `references/epistemic-limitations.md` covers all 5 gaps identified in critical review
+- [ ] RQ brief template includes Analysis Plan section
+- [ ] Meta-analysis output labeled "Exploratory quantitative synthesis — not a validated meta-analysis"
+- [ ] GRADE framework header declares adaptation status
+- [ ] All gates continue to pass
 
 ---
 
-### Wave 2.3 — GRADE certainty framework (A2)
+## Phase 3: Skill Craftsmanship & Resource Optimization (v1.8)
 
-**Rationale:** Uses A1 output (heterogeneity) and F3 output (RoB) as inputs.
-Without A1+F3, GRADE has nothing to grade.
+**Goal:** SKILL.md slimmed to ~380 lines. Pipeline details extracted to
+references. Placeholder resolution table created. RLM used for multi-source
+synthesis. Quick Reference shows conditional loading.
 
-**Duration:** 1 session
+**Problems addressed:** Skill-writing issues A-F, Resource management issues A-E.
 
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 2.3a | Create `references/grade-framework.md` — adapted GRADE for engineering | `references/grade-framework.md` (new) | 5 domains with upgrade/downgrade criteria; adapted evidence hierarchy |
-| 2.3b | Add GRADE rating to `templates/synthesis.md` per-finding section | `templates/synthesis.md` | Each K-finding gains `GRADE Certainty: ⊕⊕⊕⊝ MODERATE` line |
-| 2.3c | Add GRADE justification to finding template | `templates/synthesis.md` | `Downgraded for:` or `Upgraded for:` line per finding |
-| 2.3d | Update Stage 4 in SKILL.md: GRADE rating step after consensus assessment | `SKILL.md` §Stage 4 | Orchestrator applies GRADE domains using RoB (Stage 3) + I² (Stage 4 meta-analysis) |
-| 2.3e | Add GRADE certainty to `templates/report.md` findings | `templates/report.md` | Report findings show GRADE rating |
-| 2.3f | Add GATE-13: GRADE completeness | `SKILL.md` §Close | Every K-finding has a GRADE rating; SKIP if qualitative RQ |
+### Wave 3.1 — Pipeline Detail Extraction
 
-**Acceptance criteria:**
-- ≥80% of findings in a test session have internally consistent GRADE ratings (downgrades match RoB and I² evidence)
-- GRADE ratings use correct symbols (⊕⊕⊕⊕, ⊕⊕⊕⊝, ⊕⊕⊝⊝, ⊕⊝⊝⊝)
-- Qualitative RQs skip GRADE cleanly (no "⊕⊕⊕⊕ N/A" noise)
+| Step | Action | File(s) |
+|------|--------|---------|
+| 3.1a | Create `references/pipeline-detail.md` — extract step-by-step instructions | New file |
+| 3.1b | Slim SKILL.md stages to: Who, Output, Condition, Template ref, Key decisions, Reference to pipeline-detail.md | `SKILL.md` |
+| 3.1c | Create `references/placeholders.md` — master resolution table (32 placeholders) | New file |
+| 3.1d | Update Quick Reference with conditional loading indicators | `SKILL.md` §Quick Reference |
 
-**Files touched:** `references/grade-framework.md` (new), `templates/synthesis.md`, `templates/report.md`, `SKILL.md`
+### Wave 3.2 — Resource Optimization
 
----
+| Step | Action | File(s) |
+|------|--------|---------|
+| 3.2a | Add RLM-based multi-source synthesis to Stage 4 (>10 sources path) | `SKILL.md` §Stage 4 |
+| 3.2b | Split checklist ids 10/11 (Devil's Advocate / Stakeholder Review) | `SKILL.md` §Stage 1 |
+| 3.2c | Update `references/context-budget.md` — add orchestrator context ceiling | `references/context-budget.md` |
+| 3.2d | Fix stage numbering: 1.6→1.4 (Protocol), 1.5→1.5 (Corpus Triage) — or document rationale | `SKILL.md` |
 
-### Wave 2.4 — Sensitivity + Publication Bias (A3 + A4)
-
-**Rationale:** Both piggyback on meta-analysis output. Can be implemented
-together since they share the same trigger condition (≥5 sources + quantitative synthesis).
-
-**Duration:** 0.5 session
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 2.4a | Add `sensitivity_leave_one_out()` to `scripts/meta_analysis.py` | `scripts/meta_analysis.py` | Returns list of `{excluded, pooled, ci_lower, ci_upper, I2}` |
-| 2.4b | Add `fail_safe_n(effects, variances, alpha=0.05)` to `scripts/meta_analysis.py` | `scripts/meta_analysis.py` | Rosenthal's method; returns N |
-| 2.4c | Add `source_diversity_check(source_list)` to `scripts/helpers.py` | `scripts/helpers.py` | Returns % from same author group, institution |
-| 2.4d | Add "Sensitivity Analysis" and "Publication Bias" sub-sections to `templates/synthesis.md` | `templates/synthesis.md` | Conditional: rendered when ≥5 sources |
-| 2.4e | Update Stage 4 in SKILL.md: run sensitivity + pub bias after meta-analysis | `SKILL.md` §Stage 4 | New steps with `code_execution` calls |
-| 2.4f | Add GATE-14: Sensitivity flagging | `SKILL.md` §Close | If any leave-one-out changes conclusion direction → WARNING in gate output |
-
-**Acceptance criteria:**
-- Leave-one-out runs without error on ≥5 studies
-- Fail-safe N computed and reported
-- If ≥50% of sources share same author group → publication bias flag in report
-
-**Files touched:** `scripts/meta_analysis.py`, `scripts/helpers.py`, `templates/synthesis.md`, `SKILL.md`
+### Phase 3 exit criteria:
+- [ ] SKILL.md ≤ 400 lines
+- [ ] `references/placeholders.md` covers all 32+ placeholders with source stage
+- [ ] Stage 4 RLM path functional for 10+ source sessions
+- [ ] Quick Reference shows which references load conditionally
+- [ ] All 18 gates continue to pass
 
 ---
 
-### Phase 2 Gate Summary
+## Change Log
 
-After Wave 2.4, Close verification runs 14 gates. Gate failures on
-GATE-12 (meta-analysis self-test) and GATE-13 (GRADE completeness) are
-blocking.
-
-**Phase 2 exit criteria:**
-- [ ] All 14 gates pass on a test RQ with ≥5 quantitative sources
-- [ ] `meta_analysis.py --self-test` passes (pooled estimates within ±5% of R)
-- [ ] SKILL.md ≤ 480 lines
-- [ ] Qualitative RQ path unaffected (meta-analysis + GRADE cleanly skip)
-- [ ] Backward compatibility: `meta_analysis = "never"` produces identical output to v1.0
-
----
-
-## Phase 3: v2.0 — Living & Dissemination
-
-**Goal:** Research is updatable, multi-audience, and stakeholder-validated.
-
-**Prerequisites:** Phase 2 complete (living review needs meta-analysis for
-re-synthesis; stakeholder review needs credible findings to present).
-
-### Wave 3.1 — Multiple output formats (C2)
-
-**Rationale:** Pure template work. Independent of everything else.
-
-**Duration:** 0.5 session
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 3.1a | Create `templates/plain-summary.md` — ≤500 word template | `templates/plain-summary.md` (new) | Template with plain-language constraints |
-| 3.1b | Create `templates/decision-brief.md` — 1-pager template | `templates/decision-brief.md` (new) | Actionable recommendations format |
-| 3.1c | Create `templates/data-supplement.json` — machine-readable schema | `templates/data-supplement.json` (new) | JSON schema for extracted constants, findings, sources |
-| 3.1d | Add Stage 5 steps in SKILL.md: generate additional formats | `SKILL.md` §Stage 5 | Orchestrator fills plain-summary and decision-brief templates |
-| 3.1e | Add GATE-15: Output format completeness | `SKILL.md` §Close | Verify all 4 output files exist and are non-empty |
-
-**Acceptance criteria:**
-- Plain summary ≤ 500 words and 0 jargon terms from a configurable blocklist
-- Decision brief contains ≤5 actionable bullets
-- Data supplement is valid JSON with all findings machine-readable
-
-**Files touched:** `templates/plain-summary.md` (new), `templates/decision-brief.md` (new), `templates/data-supplement.json` (new), `SKILL.md`
-
----
-
-### Wave 3.2 — Stakeholder review panel (C3)
-
-**Rationale:** Simple pipeline insertion. Independent of other Tier 3 features.
-
-**Duration:** 0.5 session
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 3.2a | Add `stakeholder_review` config variable | `references/configuration.md` | Default: `false` |
-| 3.2b | Create `templates/stakeholder-review.md` | `templates/stakeholder-review.md` (new) | Template for feedback capture |
-| 3.2c | Add Stage 4.6 (Stakeholder Review) to SKILL.md | `SKILL.md` §Stage 4.5 | New stage between Devil's Advocate and Stage 5 |
-| 3.2d | Implement `request_user_input` call for stakeholder feedback | `SKILL.md` §Stage 4.6 | Presents K1-K3, asks for concerns |
-| 3.2e | Document feedback application step | `SKILL.md` §Stage 4.6 | Orchestrator addresses feedback before Stage 5 |
-| 3.2f | Add GATE-16: Stakeholder review documentation | `SKILL.md` §Close | If enabled, `04b-stakeholder-review.md` exists and is non-empty |
-
-**Acceptance criteria:**
-- With `stakeholder_review = true`: user prompted after Devil's Advocate, feedback documented
-- With `stakeholder_review = false`: stage skipped, no behavioral change
-- Feedback that changes findings triggers a note in the report
-
-**Files touched:** `references/configuration.md`, `templates/stakeholder-review.md` (new), `SKILL.md`
-
----
-
-### Wave 3.3 — Living systematic review (C1)
-
-**Rationale:** Most complex Tier-3 feature. Requires MANIFEST versioning,
-surveillance search logic, and update-append semantics. Depends on A1+A2
-(re-synthesis on update) and F1 (protocol DOI for version linking).
-
-**Duration:** 1 session
-
-| Step | Action | File(s) | Verification |
-|------|--------|---------|-------------|
-| 3.3a | Add `living_review`, `surveillance_interval_days`, `surveillance_queries` to config | `references/configuration.md` | Variables documented |
-| 3.3b | Update `MANIFEST.txt` format: add `search_date`, `search_queries`, `update_history` | `SKILL.md` §Session directory | Structured metadata for resumption |
-| 3.3c | Create `scripts/living_review.py` — session loader + update logic | `scripts/living_review.py` (new) | `load_prior_session(slug) → session_state`, `needs_update(session_state, interval_days) → bool` |
-| 3.3d | Add update trigger detection to Stage 1 | `SKILL.md` §Stage 1 | If session exists + `living_review = true` + interval exceeded → "update mode" |
-| 3.3e | Add update-mode pipeline: re-run Stage 2 with date-filtered queries, skip Stage 1 (RQ unchanged) | `SKILL.md` §Stage 1 | Branching logic for update vs. fresh |
-| 3.3f | Add re-synthesis logic: only re-run meta-analysis if new studies found | `SKILL.md` §Stage 4 | Conditional re-synthesis step |
-| 3.3g | Add append-to-report logic in Stage 5 | `SKILL.md` §Stage 5 | "Update N" header appended to existing `05-report.md` |
-| 3.3h | Add GATE-17: Living review freshness | `SKILL.md` §Close | If `living_review = true` + interval exceeded → WARNING |
-
-**Acceptance criteria:**
-- Triggering `"update research {slug}"` loads prior session and re-runs searches with date filter
-- New studies found → meta-analysis updated, report appended
-- No new studies → report marked "No new evidence as of {date}"
-- Update history recorded in MANIFEST.txt
-
-**Files touched:** `references/configuration.md`, `scripts/living_review.py` (new), `scripts/helpers.py`, `SKILL.md`
-
----
-
-### Phase 3 Gate Summary
-
-Final tally: 17 gates. Phase 3 adds GATE-15 (output formats), GATE-16
-(stakeholder review), GATE-17 (living review freshness).
-
-**Phase 3 exit criteria:**
-- [ ] All 17 gates pass on a test session
-- [ ] SKILL.md ≤ 500 lines
-- [ ] Update cycle: fresh → update → re-update sequence works without state corruption
-- [ ] All 4 output formats generated and valid
-- [ ] Backward compatibility: all new features disabled by default
-
----
-
-## 4. Effort Summary
-
-| Phase | Waves | Sessions | New files | Lines (est.) |
-|-------|-------|----------|-----------|-------------|
-| Phase 1 (v1.5) | 4 | 4 | 4 | ~600 |
-| Phase 2 (v1.7) | 4 | 3.5 | 5 | ~700 |
-| Phase 3 (v2.0) | 3 | 2 | 8 | ~400 |
-| **Total** | **11** | **9.5** | **17** | **~1700** |
-
----
-
-## 5. Risk Register
-
-| Risk | Phase | Likelihood | Impact | Mitigation |
-|------|-------|-----------|--------|------------|
-| `meta_analysis.py` numerical instability without scipy | 2.2 | Medium | High | Validate against R; use Welford's algorithm; embed test datasets |
-| Dual screening with same model = pseudo-replication | 1.3 | High | Medium | Use Flash for rater-1, Pro for rater-2; measure κ empirically |
-| OSF API rate-limiting or auth changes | 1.4 | Low | Medium | Graceful fallback to local SHA256; configurable timeout |
-| SKILL.md exceeds 500-line budget | All | Medium | Low | Aggressively reference instead of inline; extract Stage instructions to references/ if needed |
-| GRADE adaptation rejected by domain experts | 2.3 | Medium | Medium | Document as "GRADE-adapted"; flag as experimental in config |
-| Living review state corruption on partial update | 3.3 | Medium | High | Atomic writes; MANIFEST.txt as single source of truth; rollback on failure |
-| Grey literature sub-agent returns noise | 2.1 | High | Low | Stricter inclusion criteria; `relevance ≥ 4` threshold for grey sources |
-
----
-
-## 6. Verification Strategy
-
-### Per-wave verification
-
-Every wave ends with:
-1. **Unit:** Script self-tests pass (`--self-test` flag where applicable)
-2. **Integration:** Feature works end-to-end on a canned test RQ
-3. **Regression:** Backward-compatible path produces identical output
-
-### Cross-phase verification
-
-- **Meta-research spike:** After Phase 1, run 3 identical RQs through the skill and compare outputs — do dual screening and RoB produce consistent results?
-- **Calibration study:** After Phase 2, compare skill's GRADE ratings against 2 human researchers on 10 test findings
-- **Living review drill:** After Phase 3, simulate a 90-day update cycle with synthetic new evidence
-
-### Final acceptance
-
-- [ ] 17/17 gates pass on `"deep research calibration test"`
-- [ ] `python3 scripts/helpers.py --self-test && python3 scripts/meta_analysis.py --self-test && python3 scripts/index_sources.py --self-test` all pass
-- [ ] SKILL.md ≤ 500 lines
-- [ ] README.md in skill root updated with v2.0 feature summary
-- [ ] CHANGELOG.md updated with breaking changes (config variable additions are additive — no breaks expected)
+| Date | Version | Change |
+|------|---------|--------|
+| 2026-05-21 | 1.0 | Initial plan — 3 phases (Foundational Credibility, Professional Synthesis, Dissemination) |
+| 2026-05-22 | 2.0 | Replanned based on critical review. Phase 1 pivoted to Deep Source Reading. Original Phase 1 features (F1-F5) already shipped. New 3-phase structure: Deep Reading → Epistemic Honesty → Craftsmanship. |
