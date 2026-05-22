@@ -27,10 +27,10 @@ timestamp_utc: {iso8601_utc}
 
 ## Credibility Matrix (source-level)
 
-| Source ID | Tier | Rationale | Primary/Secondary/Tertiary | COI Flag | Status |
-|-----------|------|-----------|---------------------------|----------|--------|
-| S1 | HIGH/MEDIUM/LOW | {why} | {P/S/T} | {none/Minor/Moderate COI: reason} | ACCESSIBLE/UNVERIFIABLE/EXCLUDED |
-| S2 | ... | ... | ... | ... | ... |
+| Source ID | Tier | Rationale | Primary/Secondary/Tertiary | Status |
+|-----------|------|-----------|---------------------------|--------|
+| S1 | HIGH/MEDIUM/LOW | {why} | {P/S/T} | ACCESSIBLE/UNVERIFIABLE/EXCLUDED |
+| S2 | ... | ... | ... | ... |
 
 **Source credibility tiers:**
 - **High:** Peer-reviewed paper in established venue, industry standard with multi-party validation, experimentally validated by independent teams
@@ -40,15 +40,25 @@ timestamp_utc: {iso8601_utc}
 **Primary/Secondary/Tertiary:** See `references/epistemology.md` §Primary vs. Secondary vs. Tertiary.
 Primary sources receive higher weight for novel claims; secondary for consensus claims.
 
-## COI Register
+## Risk of Bias Assessment
 
-| Source ID | COI Level | Concern | Mitigation |
-|-----------|-----------|---------|------------|
-| S{n} | Minor / Moderate | {description} | {how mitigated, or "not mitigated — flagged for synthesis"} |
+See `references/risk-of-bias.md` for domain definitions and rating criteria.
 
-**COI levels:**
-- **Moderate:** Author is creator of evaluated framework, vendor self-report, same institution as project
-- **Minor:** AI-generated documentation, internal project doc evaluating own architecture
+### RoB Summary Table (all sources)
+
+| Source ID | Study type | Overall RoB | Key concern | Methodological quality | Reporting quality |
+|-----------|-----------|------------|-------------|----------------------|-------------------|
+| S{n} | simulation/empirical/algorithm/review/documentation | Low / Some concerns / High / Critical | {one-line summary} | Adequate / Concerning / Poor | Adequate / Incomplete / Poor |
+
+### Detailed RoB (per source with Some concerns or higher)
+
+#### S{n}: {title} — Study type: {type}
+
+| Domain | Rating | Evidence |
+|--------|--------|----------|
+| D1: {domain_name} | Low / Some concerns / High / Critical | {specific evidence from source} |
+| D2: {domain_name} | ... | ... |
+| **Overall RoB** | **{rating}** | **{rationale}** |
 
 ## Unverifiable Sources
 

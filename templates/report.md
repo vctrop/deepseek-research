@@ -66,9 +66,9 @@ timestamp_utc: {iso8601_utc}
 
 ## Sources
 
-| Source ID | Location | Type | Source Tier | P/S/T | Evidence Strength Used | COI | Used in |
-|-----------|----------|------|-------------|-------|----------------------|-----|---------|
-| S{n} | {path/URL} | {type} | HIGH/MEDIUM/LOW | P/S/T | STRONG/MODERATE/WEAK | {none/Minor/Moderate} | K1, K2 |
+| Source ID | Location | Type | Source Tier | P/S/T | RoB | Evidence Strength Used | Used in |
+|-----------|----------|------|-------------|-------|-----|----------------------|---------|
+| S{n} | {path/URL} | {type} | HIGH/MEDIUM/LOW | P/S/T | Low/Some concerns/High/Critical | STRONG/MODERATE/WEAK | K1, K2 |
 
 ## Open Questions
 

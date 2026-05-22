@@ -90,6 +90,6 @@ See `references/epistemology.md` §Consensus Assessment Rules.
 
 ## Source Usage
 
-| Source ID | Source Tier | Primary/Secondary/Tertiary | Used in Findings | Evidence Strength Contribution | Notes |
-|-----------|-------------|---------------------------|------------------|-------------------------------|-------|
-| S{n} | HIGH/MEDIUM/LOW | P/S/T | K1, K2 | STRONG/MODERATE/WEAK | {any caveats} |
+| Source ID | Source Tier | P/S/T | RoB | Used in Findings | Evidence Strength Contribution | Notes |
+|-----------|-------------|-------|-----|------------------|-------------------------------|-------|
+| S{n} | HIGH/MEDIUM/LOW | P/S/T | Low/Some concerns/High/Critical | K1, K2 | STRONG/MODERATE/WEAK | {any caveats} |

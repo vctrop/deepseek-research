@@ -21,6 +21,12 @@ timestamp_utc: {iso8601_utc}
 | `{TOTAL}` | Orchestrator | Sum of all axes |
 | `{DEDUPED}` | Orchestrator | After exact duplicate removal |
 | `{negative_search}` | Sub-agents | Mandatory negative queries per `references/epistemology.md` |
+| `{BIB_COUNT}`, `{WEB_COUNT}`, `{CODE_COUNT}` | Orchestrator | Counts from each axis sub-agent output |
+| `{TOTAL}`, `{DEDUPED}` | Orchestrator | Computed in consolidation |
+| `{EXCLUDED_IRRELEVANT}`, `{FULL_TEXT}`, `{INCLUDED}` | Orchestrator | PRISMA flow counts — computed during eligibility assessment |
+| `{QUANT}`, `{QUAL}` | Orchestrator | Quantitative vs. qualitative synthesis split |
+| `{N_REASON_1}`, `{N_REASON_2}`, `{N_REASON_3}` | Orchestrator | Exclusion reasons from full-text review |
+| `{PRESS_REVIEW_CONTENT}` | Orchestrator | Generated at Stage 2.2 per `references/press-checklist.md` |
 
 ## Discovery Summary
 
@@ -83,6 +89,54 @@ See `references/epistemology.md` §Saturation Criterion.
 ---
 
 *If 0 sources found across all axes:*
+
+## Screening Reliability
+
+*Only when `dual_screening == true`. See `references/subagent-prompts.md` §Stage 2.1.*
+
+- **Cohen's κ:** {kappa_value} — {interpretation} agreement
+- **Agreement:** {agreement_pct}%
+- **Agree-include:** {n_agree_include} | **Agree-exclude:** {n_agree_exclude} | **Disagreements:** {n_disagree}
+- **Total sources screened:** {n_total}
+- **Tiebreak decisions:** {n_tiebreak} (if applicable)
+- **Warning:** {threshold_warning or "None — κ ≥ agreement_threshold"}
+
+---
+
+## PRISMA 2020 Flow Diagram
+
+Records identified from:
+  Bibliography .................... n = {BIB_COUNT}
+  Web search ...................... n = {WEB_COUNT}
+  Codebase ........................ n = {CODE_COUNT}
+  Citation chasing (snowball) ..... n = 0 (not implemented)
+  Grey literature ................. n = 0 (not implemented)
+                                    ---------
+Total records ..................... n = {TOTAL}
+
+Records after deduplication ....... n = {DEDUPED}
+  Excluded (duplicate) ............ n = {TOTAL - DEDUPED}
+
+Records screened (title/abstract) . n = {DEDUPED}
+  Excluded (irrelevant) ........... n = {EXCLUDED_IRRELEVANT}
+
+Full-text assessed for eligibility  n = {FULL_TEXT}
+  Excluded with reasons ........... n = {FULL_TEXT - INCLUDED}
+    Reason 1: insufficient detail   n = {N_REASON_1}
+    Reason 2: wrong population      n = {N_REASON_2}
+    Reason 3: retracted             n = {N_REASON_3}
+
+Studies included in synthesis ..... n = {INCLUDED}
+  Quantitative synthesis ........... n = {QUANT}
+  Qualitative synthesis ............ n = {QUAL}
+
+## PRESS Review
+
+See `references/press-checklist.md`.
+
+{PRESS_REVIEW_CONTENT: for each query, 6-element checklist table with ADEQUATE/INADEQUATE/N/A ratings}
+
+---
 
 ## Diagnosis: No Sources Found
 

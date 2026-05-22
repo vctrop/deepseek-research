@@ -15,6 +15,11 @@ If absent, defaults are used. User can override per-session in the prompt.
 | `integration_checks` | `[]` | Shell commands for final verification |
 | `max_sources_per_axis` | `30` | Hard ceiling on sources per discovery axis |
 | `saturation_window` | `5` | Consecutive sources with no new claims before declaring saturation |
+| `dual_screening` | `false` | When `true`, bibliography axis dispatches 2 independent screeners with tiebreak resolution |
+| `agreement_threshold` | `0.60` | Cohen's κ threshold for inter-rater reliability WARNING (0.0-1.0) |
+| `protocol_registry` | `"local"` | Protocol pre-registration target: `"osf"`, `"local"`, or `"none"` |
+| `osf_token` | `""` | OSF personal access token (required if `protocol_registry = "osf"`) |
+| `osf_project_id` | `""` | OSF project GUID (required if `protocol_registry = "osf"`) |
 
 ## Session Index Format
 

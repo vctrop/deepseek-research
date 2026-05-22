@@ -199,3 +199,11 @@ assessment cannot claim systematic exhaustiveness.
 
 Never label as CONSENSUS when all agreeing sources share the same author group,
 institution, or funding source (COI contamination).
+
+---
+
+## Risk of Bias → Evidence Strength
+
+See `references/risk-of-bias.md` §RoB → Evidence Strength Mapping for the
+full modifier table. Summary: Low RoB → no change; Some concerns → drop one
+evidence strength level; High → drop two levels; Critical → exclude from evidence.

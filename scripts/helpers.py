@@ -121,6 +121,104 @@ def update_session_index(
         return False
 
 
+def compute_cohens_kappa(
+    rater1_included: list[str],
+    rater2_included: list[str],
+    all_source_ids: list[str],
+) -> dict:
+    """Compute Cohen's kappa for inter-rater reliability between two screeners.
+
+    Args:
+        rater1_included: List of source_ids that rater 1 marked as "include".
+        rater2_included: List of source_ids that rater 2 marked as "include".
+        all_source_ids: List of all source_ids screened by both raters.
+
+    Returns:
+        dict with keys: kappa, agreement_pct, n_agree_include, n_agree_exclude,
+        n_disagree, n_total, interpretation.
+
+    Uses scipy.stats.cohen_kappa if available; falls back to manual computation.
+
+    Interpretation:
+        κ < 0.00: Poor agreement
+        0.00 ≤ κ ≤ 0.20: Slight
+        0.21 ≤ κ ≤ 0.40: Fair
+        0.41 ≤ κ ≤ 0.60: Moderate
+        0.61 ≤ κ ≤ 0.80: Substantial
+        0.81 ≤ κ ≤ 1.00: Almost perfect
+    """
+    set1 = set(rater1_included)
+    set2 = set(rater2_included)
+    all_ids = set(all_source_ids)
+
+    n_total = len(all_ids)
+    if n_total == 0:
+        return {
+            "kappa": 1.0, "agreement_pct": 100.0,
+            "n_agree_include": 0, "n_agree_exclude": 0,
+            "n_disagree": 0, "n_total": 0,
+            "interpretation": "No sources to rate"
+        }
+
+    n_agree_include = len(set1 & set2)
+    n_agree_exclude = len(all_ids - set1 - set2)
+    n_disagree = n_total - n_agree_include - n_agree_exclude
+    agreement_pct = (n_agree_include + n_agree_exclude) / n_total * 100
+
+    # Build contingency table
+    a = n_agree_include                          # both include
+    b = len(set1 - set2)                          # rater1 include, rater2 exclude
+    c = len(set2 - set1)                          # rater1 exclude, rater2 include
+    d = n_agree_exclude                           # both exclude
+
+    # Expected agreement by chance
+    n = a + b + c + d
+    if n == 0:
+        return {
+            "kappa": 1.0, "agreement_pct": 100.0,
+            "n_agree_include": a, "n_agree_exclude": d,
+            "n_disagree": 0, "n_total": n_total,
+            "interpretation": "No sources to rate"
+        }
+
+    p_o = (a + d) / n                            # observed agreement
+    p_yes = ((a + b) / n) * ((a + c) / n)        # chance agreement on "include"
+    p_no = ((c + d) / n) * ((b + d) / n)         # chance agreement on "exclude"
+    p_e = p_yes + p_no                            # expected agreement by chance
+
+    if p_e == 1.0:
+        kappa = 1.0
+    else:
+        kappa = (p_o - p_e) / (1.0 - p_e)
+
+    # Clamp to [-1, 1]
+    kappa = max(-1.0, min(1.0, kappa))
+
+    # Interpretation
+    if kappa < 0.0:
+        interp = "Poor"
+    elif kappa <= 0.20:
+        interp = "Slight"
+    elif kappa <= 0.40:
+        interp = "Fair"
+    elif kappa <= 0.60:
+        interp = "Moderate"
+    elif kappa <= 0.80:
+        interp = "Substantial"
+    else:
+        interp = "Almost perfect"
+
+    return {
+        "kappa": round(kappa, 4),
+        "agreement_pct": round(agreement_pct, 1),
+        "n_agree_include": a,
+        "n_agree_exclude": d,
+        "n_disagree": n_disagree,
+        "n_total": n_total,
+        "interpretation": interp,
+    }
+
+
 def build_subagent_prompt(
     template_name: str,  # "dsr-bibliography" | "dsr-web" | "dsr-code" | "dsr-da"
     **kwargs: str,
@@ -142,6 +240,7 @@ def build_subagent_prompt(
         "dsr-web": _build_web_prompt,
         "dsr-code": _build_code_prompt,
         "dsr-da": _build_da_prompt,
+        "dsr-tiebreak": _build_tiebreak_prompt,
     }
     builder = prompts.get(template_name)
     if builder is None:
@@ -274,3 +373,29 @@ Write findings to {session_dir}/04a-devils-advocate.md using the template at {sk
 ## Verdict
 PASS / MINOR (cosmetic fixes) / REVISE (substantive — list required revisions with line references).
 Write verdict as a single line: **Verdict: {{PASS/MINOR/REVISE}}**"""
+
+
+def _build_tiebreak_prompt(
+    rq_text: str,
+    bibliography_path: str,
+    disagreement_list: str,  # JSON array of {source_id, rater1_decision, rater2_decision, title}
+) -> str:
+    return f"""You are a tiebreak reviewer resolving disagreements between two independent screeners.
+
+Research Question: {rq_text}
+Bibliography path: {bibliography_path}
+
+The following sources received conflicting include/exclude decisions from the two screeners.
+For each source, read the title and available metadata, then make a final decision: INCLUDE or EXCLUDE.
+
+Disagreements:
+{disagreement_list}
+
+## Output REQUIRED format
+| Source ID | Decision | Rationale (one sentence) |
+|-----------|----------|--------------------------|
+
+Rules:
+- Default to INCLUDE if uncertain (inclusive screening reduces false negatives).
+- If rationale from one screener is clearly stronger, adopt that decision.
+- Do NOT introduce new sources — only resolve the listed disagreements."""
