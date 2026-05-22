@@ -5,7 +5,7 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 5 stages + adversarial checkpoint + 11 verification gates.
+Deep multi-source research pipeline: 12 stages + adversarial checkpoint + 17 verification gates.
 Corpus vivo: web-discovered sources are persisted and reused cross-session.
 Generic — no project-specific infrastructure dependencies.
 
@@ -81,6 +81,7 @@ Generic — no project-specific infrastructure dependencies.
      {"content": "Stage 3: Source Verification", "status": "pending"},
      {"content": "Stage 4: Synthesis", "status": "pending"},
      {"content": "Stage 4.5: Devil's Advocate", "status": "pending"},
+     {"content": "Stage 4.6: Stakeholder Review", "status": "pending"},
      {"content": "Stage 5: Terminal Report + Close", "status": "pending"}
    ])
    ```
@@ -89,6 +90,12 @@ Generic — no project-specific infrastructure dependencies.
 5. Use `request_user_input` to clarify: central question, domains spanned, decisions depending on this research.
 6. Generate slug from RQ: lowercase, hyphens, ≤ 50 chars. Example: "Estado da arte em co-kriging?" → `co-kriging-estado-da-arte`.
 7. Check prior sessions: `grep_files` in `$SESSION_INDEX` for slug/topic. If found, ask user to extend or start fresh.
+   - **Living review trigger:** If `living_review == true` and session exists, check update cadence:
+     ```
+     code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from living_review import load_session, needs_update; s = load_session('{output_dir}', '{slug}'); print(json.dumps({'found': s is not None, 'needs_update': needs_update(s, {surveillance_interval_days}) if s else True}))")
+     ```
+   - If `needs_update == true`: enter "update mode" — skip RQ formulation, reuse prior RQ and protocol, re-run Stage 2 with date filter, append to existing report.
+   - If `needs_update == false`: "Surveillance not yet due. Last search: {date}. Next update after: {next_date}." → STOP.
 8. **Classify knowledge type:** Per `references/epistemology.md` §Knowledge Type Taxonomy. Each sub-question gets a classification. This determines what counts as valid evidence.
 9. **Operationalize concepts:** Per `references/epistemology.md` §Operationalization. Every RQ construct needs observable criteria. Flag unoperationalizable constructs as limitations.
 10. Apply FINER scoring (threshold: average ≥ 3.0, no criterion < 2).
@@ -355,6 +362,23 @@ Skip if Stage 2 found 0 sources.
 
 ---
 
+### Stage 4.6: Stakeholder Review
+
+**Condition:** Run ONLY if `stakeholder_review == true`. Otherwise skip.
+
+**Who:** Orchestrator (Pro — minimal thinking)
+**Output:** `{output_dir}/{date}-{slug}/04b-stakeholder-review.md`
+**Template:** `{SKILL_DIR}/templates/stakeholder-review.md`
+
+1. Load template: `read_file("{SKILL_DIR}/templates/stakeholder-review.md")`.
+2. Present draft findings via `request_user_input`:
+   - "Key findings before finalization: [K1 summary], [K2 summary], ... Any stakeholder concerns?"
+3. Document feedback and actions taken in the template.
+4. Apply feedback to `04-synthesis.md` before Stage 5.
+5. `checklist_update(id=10, status="completed")`.
+
+---
+
 ### Stage 5: Terminal Report
 
 **Who:** Orchestrator (Pro — minimal thinking)
@@ -367,8 +391,12 @@ Skip if Stage 2 found 0 sources.
    ```
    code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import update_session_index; print(update_session_index('{session_index_path}', {{'slug': '{slug}', 'date': '{date}', 'rq': '{rq_summary}', 'verdict': '{verdict_summary}', 'sources_used': {sources_count}, 'review_type': '{review_type}', 'rq_sha256': '{rq_sha256}'}}))")
    ```
-4. No knowledge entity creation. Report is the final artifact.
-5. `checklist_update(id=11, status="completed")`.
+4. **Generate additional formats.** Load templates:
+   - `read_file("{SKILL_DIR}/templates/plain-summary.md")` → fill with ≤500 word plain-language summary.
+   - `read_file("{SKILL_DIR}/templates/decision-brief.md")` → fill with actionable recommendations.
+   - `read_file("{SKILL_DIR}/templates/data-supplement.json")` → fill with machine-readable extracted data.
+5. No knowledge entity creation. Report is the final artifact.
+6. `checklist_update(id=12, status="completed")`.
 
 ---
 
@@ -440,7 +468,23 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8 failures must be re
 - `grep_files(pattern="Leave-one-out", path="{session_dir}/04-synthesis.md")` → must return match if ≥5 studies. WARNING if absent.
 - `grep_files(pattern="Fail-safe", path="{session_dir}/04-synthesis.md")` → must return match. WARNING if absent.
 
-`checklist_update(id=11, status="completed")`.
+**GATE-15 — Output format completeness.** Verify all output files:
+- `[ -s "{session_dir}/05-report.md" ]` → FAIL if missing
+- `[ -s "{session_dir}/05-plain-summary.md" ]` → FAIL if missing
+- `[ -s "{session_dir}/05-decision-brief.md" ]` → FAIL if missing
+- `[ -s "{session_dir}/05-data-supplement.json" ]` → FAIL if missing
+- `validate_data(path="{session_dir}/05-data-supplement.json", format="json")` → FAIL if invalid
+
+**GATE-16 — Stakeholder review.** If `stakeholder_review == true`:
+- `[ -s "{session_dir}/04b-stakeholder-review.md" ]` → FAIL if missing
+- If `stakeholder_review == false`: SKIP.
+
+**GATE-17 — Living review freshness.** If `living_review == true`:
+- `grep_files(pattern="last_search_date", path="{session_dir}/MANIFEST.txt")` → must return match. FAIL if absent.
+- WARNING if `surveillance_interval_days` exceeded and no update triggered.
+- If `living_review == false`: SKIP.
+
+`checklist_update(id=12, status="completed")`.
 
 ---
 

@@ -21,6 +21,9 @@ If absent, defaults are used. User can override per-session in the prompt.
 | `osf_token` | `""` | OSF personal access token (required if `protocol_registry = "osf"`) |
 | `osf_project_id` | `""` | OSF project GUID (required if `protocol_registry = "osf"`) |
 | `meta_analysis` | `"auto"` | `"auto"` (trigger on ≥3 quantitative sources), `"always"`, or `"never"` |
+| `stakeholder_review` | `false` | When `true`, prompt user for feedback on draft findings before final report |
+| `living_review` | `false` | When `true`, enable update cycles with surveillance searches |
+| `surveillance_interval_days` | `90` | Days between surveillance searches for living reviews |
 
 ## Session Index Format
 
