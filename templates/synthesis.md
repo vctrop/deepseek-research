@@ -1,7 +1,25 @@
+---
+session: {date}-{slug}
+stage: 4
+skill_version: {skill_git_hash}
+model: {model_id}
+timestamp_utc: {iso8601_utc}
+---
+
 # Synthesis
 
 **Session:** `{date}-{slug}`
 **Stage:** 4 — Synthesis
+
+## Placeholders
+
+| Placeholder | Populated by | Source |
+|---|---|---|
+| `{date}` | Orchestrator | System date |
+| `{slug}` | Orchestrator | From Stage 1 |
+| `{RQ_TEXT}` | Orchestrator | From `01-rq-brief.md` |
+| `{DEDUP_NOTES}` | Orchestrator | Deduplication pass on source claims |
+| All findings (K1, K2, ...) | Orchestrator | Cross-source analysis |
 
 ## Deduplication Notes
 
@@ -17,11 +35,13 @@
 
 ### K1: {finding_title}
 
-**Claim:** {qualified claim — no bare "validated"/"confirmed"/"proved"}
+**Claim:** {qualified claim — see `references/iron-rule-c.md` §Qualified Replacements}
 
-**Supporting sources:** S{n} (HIGH), S{m} (MEDIUM)
+**Supporting sources:** S{n} (source tier: HIGH/MEDIUM/LOW), S{m} (source tier: HIGH/MEDIUM/LOW)
 
-**Confidence:** HIGH / MEDIUM / LOW
+**Evidence strength:** STRONG / MODERATE / WEAK — {rationale per `references/epistemology.md` §Evidence Strength Matrix}
+
+**Confidence:** HIGH / MEDIUM / LOW / SPECULATIVE — {rationale per `references/iron-rule-c.md` §Confidence Language Scale}
 
 ---
 
@@ -37,23 +57,25 @@
 
 > This research question is qualitative. No numerical constants were extracted. See Key Findings for qualitative results.
 
-| Symbol | Value | Unit | Source | Confidence |
-|--------|-------|------|--------|------------|
-| {symbol} | {value} | {unit} | S{n} | HIGH/MEDIUM/LOW |
+| Symbol | Value | Unit | Source | Evidence strength | Confidence |
+|--------|-------|------|--------|-------------------|------------|
+| {symbol} | {value} | {unit} | S{n} | STRONG/MODERATE/WEAK | HIGH/MEDIUM/LOW |
 
 ## Algorithms / Patterns
 
 *If RQ is qualitative, adapt to "Patterns" instead of "Algorithms".*
 
-| Name | Complexity / Structure | Domain Assumptions | Source | Confidence |
-|------|------------------------|--------------------|--------|------------|
-| {name} | {O(...) or pattern desc} | {assumptions} | S{n} | HIGH/MEDIUM/LOW |
+| Name | Complexity / Structure | Domain Assumptions | Source | Evidence strength | Confidence |
+|------|------------------------|--------------------|--------|-------------------|------------|
+| {name} | {O(...) or pattern desc} | {assumptions} | S{n} | STRONG/MODERATE/WEAK | HIGH/MEDIUM/LOW |
 
 ## Consensus Assessment
 
+See `references/epistemology.md` §Consensus Assessment Rules.
+
 | Question | Consensus | Confidence | Notes |
 |----------|-----------|------------|-------|
-| {question} | YES / NO / DIVERGENT | HIGH / MEDIUM / LOW | {if DIVERGENT: which sources disagree and why} |
+| {question} | CONSENSUS / MAJORITY / DIVERGENT / INSUFFICIENT | HIGH / MEDIUM / LOW | {if DIVERGENT: which sources disagree and why} |
 
 ## Gaps
 
@@ -68,6 +90,6 @@
 
 ## Source Usage
 
-| Source ID | Credibility | Used in Findings | Notes |
-|-----------|-------------|------------------|-------|
-| S{n} | HIGH/MEDIUM/LOW | K1, K2 | {any caveats} |
+| Source ID | Source Tier | Primary/Secondary/Tertiary | Used in Findings | Evidence Strength Contribution | Notes |
+|-----------|-------------|---------------------------|------------------|-------------------------------|-------|
+| S{n} | HIGH/MEDIUM/LOW | P/S/T | K1, K2 | STRONG/MODERATE/WEAK | {any caveats} |
