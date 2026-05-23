@@ -1,74 +1,31 @@
 # Sub-agent Prompts
 
-Loaded by the orchestrator during Stage 2 and Stage 4.5 dispatch.
-Do NOT inline these in SKILL.md.
-
-**All prompts are now built via `helpers.build_subagent_prompt()`** — no manual
-JSON escaping, no string interpolation fragility. The orchestrator calls
-`code_execution` to generate each prompt string, then passes it to `agent_open`.
+Carregado pelo orquestrador durante Stage 2. Prompts são gerados via
+`helpers.build_subagent_prompt()` — sem JSON manual, sem interpolação frágil.
 
 ---
 
-## Stage 2: dsr-bibliography (Bibliography axis)
-
-Generate the prompt via `helpers.py`:
+## dsr-bibliography (Bibliography axis)
 
 ```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', local_sources_block='''{LOCAL_SOURCES_BLOCK}'''))")
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', topics='{topics}'))")
 ```
 
-Then dispatch with the output:
 ```
 agent_open(name="dsr-bibliography", model="deepseek-v4-flash",
-  allowed_tools=["grep_files","read_file","file_search","web_search","fetch_url","rlm_open","rlm_eval","rlm_close","write_file"],
-  prompt=<output from code_execution above>)
-
-**Output file:** Sub-agent MUST write complete results to `/tmp/dsr-bibliography-results.md` before responding.
-Orchestrator reads this file after `agent_eval` completes.
+  allowed_tools=["grep_files","read_file","web_search","fetch_url","write_file"],
+  prompt=<output do code_execution>)
 ```
 
-LOCAL_SOURCES_BLOCK format (if non-empty, from Stage 1.5):
-```
-## Local Corpus (pre-indexed sources — do NOT fetch online)
+**Output file:** `/tmp/dsr-bibliography-results.md` — lido pelo orquestrador
+após `agent_eval`. Sub-agent DEVE escrever resultados completos antes de responder.
 
-The following sources are already on disk. Read each from {bibliography_path}/{path},
-re-annotate for the current RQ, and mark as Access: ✓ Local corpus.
-
-{local_sources_json}
-
-Focus online search effort on topics, authors, and time periods NOT covered by these sources.
-```
+**Busca:** Local (`grep_files` + `read_file` em `{bibliography_path}`) e web
+(`web_search` + `fetch_url`). Inclui queries de limitações/críticas.
 
 ---
 
-## Stage 2: dsr-web (Web axis)
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-web', rq_text='{RQ_TEXT}', main_topic='{main_topic}'))")
-```
-
-```
-agent_open(name="dsr-web", model="deepseek-v4-flash",
-  allowed_tools=["web_search","fetch_url","write_file"],
-  prompt=<output from code_execution above>)
-```
-
-### Negative Search Rate-Limiting Fallback
-
-> **Scope:** This is orchestrator-level logic — the sub-agent prompt template in `prompts.py` does NOT include these instructions. The orchestrator detects rate-limiting in the sub-agent's output and handles retry/fallback.
-
-When negative/contrary search queries are blocked by rate-limiting during web discovery:
-
-1. Attempt up to 2 retries with 30-second backoff between attempts.
-2. If still blocked: extract contrary evidence from primary search results:
-   - Look for paragraphs discussing "limitations," "failure cases," "criticism" in positive search results.
-   - Flag these as "derived from primary sources — not from dedicated contrary search."
-3. Record the derivation method in the output's Search Audit table.
-4. Do NOT fabricate negative results — only extract from actual sources found.
-
----
-
-## Stage 2: dsr-code (Codebase axis)
+## dsr-code (Codebase axis)
 
 ```
 code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-code', rq_text='{RQ_TEXT}'))")
@@ -77,211 +34,16 @@ code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from
 ```
 agent_open(name="dsr-code", model="deepseek-v4-flash",
   allowed_tools=["grep_files","read_file","file_search","write_file"],
-  prompt=<output from code_execution above>)
-
-**Output file:** Sub-agent MUST write complete results to `/tmp/dsr-code-results.md` before responding.
-Orchestrator reads this file after `agent_eval` completes.
+  prompt=<output do code_execution>)
 ```
+
+**Output file:** `/tmp/dsr-code-results.md`.
+
+**Busca:** `grep_files` com padrões derivados da RQ (nomes de função, constantes,
+algoritmos) + `read_file` dos arquivos com matches.
 
 ---
 
-## Stage 4.5: dsr-da (Devil's Advocate)
+## Tipos aceitos por `build_subagent_prompt()`
 
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-da', session_dir='{session_dir}', skill_dir='{SKILL_DIR}'))")
-```
-
-```
-agent_open(name="dsr-da", model="deepseek-v4-pro",
-  allowed_tools=["read_file","write_file"],
-  prompt=<output from code_execution above>)
-```
-
----
-
-## Reference: Prompt templates (for inspection only)
-
-The full prompt text is generated by `helpers.py`. See `scripts/helpers.py` functions:
-- `_build_bibliography_prompt()` — bibliography axis
-- `_build_web_prompt()` — web axis
-- `_build_code_prompt()` — codebase axis
-- `_build_da_prompt()` — Devil's Advocate
-
----
-
-## Stage 2: dsr-opensource (Open-Source axis)
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}', topics='{topics}'))")
-```
-
-```
-agent_open(name="dsr-opensource", model="deepseek-v4-flash",
-  allowed_tools=["web_search","fetch_url","write_file"],
-  prompt=<output from code_execution above>)
-```
-
-**Model:** Flash — mechanical search across forges and package registries, no deep judgment needed.
-
-**Discovery targets (in priority order):**
-1. GitHub code search via `web_search` with `site:github.com`
-2. GitLab explore via `web_search` with `site:gitlab.com`
-3. Package registries: crates.io, PyPI, npm (via `web_search`)
-4. Papers with Code via `web_search` with `site:paperswithcode.com`
-5. **Fallback (if < 5 results from above):** SourceForge (`site:sourceforge.net`), Codeberg (`site:codeberg.org`)
-
-**Mandatory search categories (all must be attempted):**
-- `"{main_topic} implementation github"`
-- `"{main_topic} benchmark"`
-- `"{main_topic} open source"`
-- `"{main_topic} library {language}"` (if language mentioned in RQ)
-- **Negative search:** `"{main_topic} abandoned"`, `"{main_topic} unmaintained"`, `"{main_topic} deprecated"`
-
-**Output REQUIRED format:**
-```
-| Source ID | Repository URL | Type (impl/benchmark/lib/tool) | Relevance (1-5) | Why relevant | Stars | Last commit |
-```
-
-**Relevance assessment criteria:**
-- 5: Directly implements the algorithm/method described in RQ
-- 4: Related implementation or benchmark suite for the domain
-- 3: Library in same domain, potentially useful
-- 2: Tangentially related tool or utility
-- 1: Mentioned but not directly applicable
-
-**Negative search reporting:** Same format as other axes — report queries attempted, results found, key findings (or "No contrary evidence found").
-
----
-
-## Stage 2.6: dsr-adversarial (Adversarial Search)
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; import json; included = json.dumps([...]); print(build_subagent_prompt('dsr-adversarial', rq_text='{RQ_TEXT}', included_sources_json=included, main_topic='{main_topic}', topics='{topics}'))")
-```
-
-```
-agent_open(name="dsr-adversarial", model="deepseek-v4-flash",
-  allowed_tools=["web_search", "fetch_url", "write_file"],
-  prompt=<output from code_execution above>)
-```
-
-**Output file:** Sub-agent MUST write complete results to `/tmp/dsr-adversarial-results.md` before responding.
-Orchestrator reads this file after `agent_eval` completes.
-
-**Purpose:** Red-team the source inventory. Find contrary evidence, methodological
-critiques, replication failures, and alternative explanations that the main
-search may have missed due to confirmation bias.
-
-**Injection:** Sources with Strength ≥ 3 are added to the source inventory with
-`[ADVERSARIAL]` marker and receive mandatory Level A deep read.
-
-**Model:** Flash — the adversarial search is essentially a web search with inverted
-bias (same complexity as dsr-web). The judgment of what constitutes "contrary
-evidence" is binary (Strength ≥ 3 → include). Pro is reserved for deep reading
-and Devil's Advocate where judgment is nuanced.
-
----
-
-## Stage 3.5: dsr-deep-read-t5 (T5 Source Code Deep Read)
-
-One sub-agent per T5 (source code) source. Dispatched in parallel by the orchestrator
-instead of inline T5 processing. Allows parallel deep reading of multiple repositories.
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-deep-read-t5', source_id='{source_id}', repo_url='{repo_url}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}', oss_clone_dir='{oss_clone_dir}'))")
-```
-
-```
-agent_open(name="dsr-deep-read-t5-{source_id}", model="deepseek-v4-pro",
-  allowed_tools=["exec_shell","grep_files","read_file","write_file","fetch_url","handle_read"],
-  prompt=<output from code_execution above>)
-```
-
-**Model:** Pro — code reading requires careful claim extraction and cross-reference with documentation.
-**Tools:** `exec_shell` for git clone/pull + commit hash; `grep_files` for RQ patterns; `read_file` for key files; `write_file` for output; `fetch_url` for README/docs if not cloned.
-
-**Procedure (performed by sub-agent):**
-1. If remote repository: `exec_shell("git clone --depth 1 --single-branch {repo_url} {oss_clone_dir}/{org}_{repo}/")`. If already cloned, `git pull`.
-2. Record commit hash: `exec_shell("cd {oss_clone_dir}/{org}_{repo} && git rev-parse HEAD")`.
-3. Structure survey: `read_file` README.md and package manifest.
-4. Targeted grep: `grep_files` with RQ-derived patterns.
-5. Read matching files: `read_file` key implementation, benchmark, and test files.
-6. Extract E-grade claims. Write `{session_dir}/deep-reads/{source_id}.md`.
-
-**Output:** `{session_dir}/deep-reads/{source_id}.md` per `references/deep-reading.md` §Output Contract.
-
-**Parallel dispatch:** Stage 3.5 dispatches deep read sub-agents in batches
-of MAX_CONCURRENT=5. Dispatch batch, wait for ALL in batch
-(`agent_eval(block=true, timeout_ms=300000)`), then dispatch next batch.
-If >5 sources total, Level A receives first 5, Level B receives remainder
-(see `references/pipeline-detail.md` §Stage 3.5 for two-level deep read).
-
----
-
-## Stage 2.1: dsr-tiebreak (Disagreement resolution)
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; import json; disagreements = json.dumps([...]); print(build_subagent_prompt('dsr-tiebreak', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', disagreement_list=disagreements))")
-```
-
-```
-agent_open(name="dsr-tiebreak", model="deepseek-v4-flash",
-  allowed_tools=["grep_files","read_file","file_search","write_file"],
-  prompt=<output from code_execution above>)
-```
-
----
-
----
-
-## Stage 2: dsr-grey (Grey literature axis)
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-grey', rq_text='{RQ_TEXT}', main_topic='{main_topic}'))")
-```
-
-```
-agent_open(name="dsr-grey", model="deepseek-v4-flash",
-  allowed_tools=["web_search","fetch_url","write_file"],
-  prompt=<output from code_execution above>)
-```
-
----
-
-## Stage 3.5: dsr-deep-read (Deep Source Reading)
-
-One sub-agent per included source. Dispatched in parallel by the orchestrator
-after Stage 3 verification.
-
-```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-deep-read', source_id='{source_id}', source_path_or_url='{source_path_or_url}', source_title='{source_title}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}'))")
-```
-
-```
-agent_open(name="dsr-deep-read-{source_id}", model="deepseek-v4-pro",
-  allowed_tools=["rlm_open","rlm_eval","rlm_configure","rlm_close","read_file","fetch_url","handle_read","write_file","grep_files"],
-  prompt=<output from code_execution above>)
-```
-
-**Model:** Pro (not Flash). Deep reading requires careful claim extraction,
-evidence grading, and internal consistency checking — these are judgment tasks,
-not mechanical search. Use `"Think carefully about claim extraction and evidence grading."`
-
-**Parallel dispatch:** Stage 3.5 dispatches all deep read sub-agents in a single
-turn, one per source. If >10 sources, batch into groups of 10.
-
-**Tools:** `rlm_open`/`rlm_eval`/`rlm_close` for T3/T4 documents;
-`read_file` for T1/T2; `fetch_url` for web sources; `handle_read` for
-RLM output retrieval; `write_file` for the output markdown.
-
-**Output:** `{session_dir}/deep-reads/{source_id}.md` per
-`references/deep-reading.md` §Output Contract.
-
-**Failure modes:** The sub-agent writes INACCESSIBLE, PARTIAL, or FAILED
-status to the output file rather than crashing. See `references/deep-reading.md`
-§Failure modes.
-
----
-
-Template names accepted by `build_subagent_prompt()`:
-`"dsr-bibliography"`, `"dsr-web"`, `"dsr-code"`, `"dsr-opensource"`, `"dsr-deep-read-t5"`, `"dsr-adversarial"`, `"dsr-da"`, `"dsr-grey"`, `"dsr-tiebreak"`, `"dsr-deep-read"`
+`"dsr-bibliography"`, `"dsr-code"`
