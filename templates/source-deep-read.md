@@ -11,8 +11,9 @@ timestamp_utc: {iso8601_utc}
 
 **Source:** {source_title}
 **Location:** {source_path_or_url}
-**Document tier:** T1 / T2 / T3 / T4
-**Chunking strategy:** {direct_read / paginated / RLM_chunking}
+**Document tier:** T1 / T2 / T3 / T4 / T5
+**Chunking strategy:** {direct_read / paginated / RLM_chunking / codebase_grep}
+**Commit analyzed:** {commit_hash — T5 only; "N/A" for non-T5}
 **Chunks processed:** {n_chunks} of {total_chunks} ({coverage_pct}% coverage)
 **Sections skipped:** {skipped_sections — "None" or list with rationale}
 
@@ -32,7 +33,7 @@ Claims relevant to RQ: `{RQ_TEXT}`
 
 | ID | Claim (verbatim) | Evidence grade | Section ref | Page/line | Notes |
 |----|-----------------|---------------|-------------|-----------|-------|
-| C1 | "{exact quote from source}" | V / P / I / M | §{section} | p. {page}, l. {line} | {any caveats about context} |
+| C1 | "{exact quote from source}" | V / P / I / M / E | §{section} | p. {page}, l. {line} / {file}:{line} | {any caveats about context} |
 | C2 | "{exact quote from source}" | V / P / I / M | §{section} | p. {page}, l. {line} | |
 | ... | | | | | |
 
@@ -41,6 +42,7 @@ Claims relevant to RQ: `{RQ_TEXT}`
 - **P (Paraphrase with context):** Restated with surrounding context — MODERATE evidence.
 - **I (Inference):** Derived from data/figures/tables — WEAK evidence, requires cross-validation.
 - **M (Mathematical):** Contains theorem/proof/equation — ⚠ requires human verification; capped at LOW confidence.
+- **E (Empirical — implementation):** Evidence from real executable code (implementation, benchmark, test, hardcoded constant). STRONG if repository RoB Low; MODERATE if Some concerns.
 
 See `references/deep-reading.md` §Textual Evidence Taxonomy for full definitions.
 

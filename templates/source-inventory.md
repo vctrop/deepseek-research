@@ -21,7 +21,7 @@ timestamp_utc: {iso8601_utc}
 | `{TOTAL}` | Orchestrator | Sum of all axes |
 | `{DEDUPED}` | Orchestrator | After exact duplicate removal |
 | `{negative_search}` | Sub-agents | Mandatory negative queries per `references/epistemology.md` |
-| `{BIB_COUNT}`, `{WEB_COUNT}`, `{CODE_COUNT}` | Orchestrator | Counts from each axis sub-agent output |
+| `{BIB_COUNT}`, `{WEB_COUNT}`, `{CODE_COUNT}`, `{OSS_COUNT}`, `{CODE_REF_COUNT}`, `{GREY_COUNT}` | Orchestrator | Counts from each axis sub-agent output |
 | `{TOTAL}`, `{DEDUPED}` | Orchestrator | Computed in consolidation |
 | `{EXCLUDED_IRRELEVANT}`, `{FULL_TEXT}`, `{INCLUDED}` | Orchestrator | PRISMA flow counts — computed during eligibility assessment |
 | `{QUANT}`, `{QUAL}` | Orchestrator | Quantitative vs. qualitative synthesis split |
@@ -35,6 +35,7 @@ timestamp_utc: {iso8601_utc}
 | bibliography | {N} | dsr-bib | completed/failed/skipped |
 | web | {N} | dsr-web | completed/failed/skipped |
 | codebase | {N} | dsr-code | completed |
+| opensource | {N} | dsr-oss | completed/failed/skipped |
 
 **Total:** {TOTAL} sources before deduplication. {DEDUPED} after deduplication.
 
@@ -47,6 +48,7 @@ timestamp_utc: {iso8601_utc}
 | web | "{negative_query_2}" | {search_engine} | {date} | {N} | {N} |
 | bibliography | "{keywords}" | index_sources.py | {date} | {N} | {N} |
 | codebase | "{grep_pattern}" | grep_files | {date} | {N} | {N} |
+| opensource | "{primary_query}" | web_search (GitHub/GitLab/pkg) | {date} | {N} | {N} |
 
 ## Negative Search Results
 
@@ -67,7 +69,7 @@ See `references/epistemology.md` §Saturation Criterion.
 
 | Source ID | Location | Type | Relevance | Why relevant |
 |-----------|----------|------|-----------|--------------|
-| S1 | {path or URL} | {paper/book/impl/doc/web} | 1-5 | {one sentence} |
+| S1 | {path or URL} | {paper/book/impl/doc/web/repo/code_ref} | 1-5 | {one sentence} |
 | S2 | ... | ... | ... | ... |
 
 **Relevance scale:**
@@ -81,7 +83,7 @@ See `references/epistemology.md` §Saturation Criterion.
 
 ### S{n}: {title / file:line / URL}
 
-- **Type:** {bibliography source type / codebase artifact type}
+- **Type:** {bibliography source type / codebase artifact type / opensource repo type}
 - **Relevance:** {score}/5
 - **Why:** {rationale from sub-agent}
 - **Needs verification:** {yes/no — particular concerns}
@@ -109,6 +111,8 @@ Records identified from:
   Bibliography .................... n = {BIB_COUNT}
   Web search ...................... n = {WEB_COUNT}
   Codebase ........................ n = {CODE_COUNT}
+  Open-source repositories ........ n = {OSS_COUNT}
+  Code references (from papers) ... n = {CODE_REF_COUNT}
   Citation chasing (snowball) ..... n = 0 (not implemented)
   Grey literature ................. n = {GREY_COUNT}
                                     ---------
@@ -138,10 +142,24 @@ See `references/press-checklist.md`.
 
 ---
 
+## Code References Extracted
+
+*Only when `"bibliography"` or `"web"` is in `source_axes` AND references to repositories were found in discovered sources. See `references/pipeline-detail.md` §Stage 2.6.*
+
+| Ref ID | Repository URL | Extracted from | Relevance | Status |
+|--------|---------------|----------------|-----------|--------|
+| CR1 | github.com/org/repo | S3 ({title}) | 1-5 | ACCESSIBLE / INACCESSIBLE |
+
+*If no code references found:*
+> No repository URLs found in discovered sources.
+
+---
+
 ## Diagnosis: No Sources Found
 
 **Bibliography axis:** {path exists? format recognized? search terms too narrow?}
 **Web axis:** {search terms too broad/narrow? paywalled content?}
 **Codebase axis:** {RQ not related to codebase? search patterns too specific?}
+**Opensource axis:** {no repositories found? search terms too narrow? domain has no open-source implementations?}
 
 **Recommendation:** {widen scope, refine RQ, or accept negative result}

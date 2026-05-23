@@ -27,9 +27,9 @@ timestamp_utc: {iso8601_utc}
 
 ## Cross-References
 
-| Finding | Web source | Codebase source | Consistency |
+| Finding | Web source | Codebase source | Opensource source | Consistency |
 |---------|------------|-----------------|-------------|
-| {finding} | S{n} | S{m} (:line) | CONSISTENT / PARTIAL / CONTRADICTS |
+| {finding} | S{n} | S{m} (:line) | S{p} (repo) | CONSISTENT / PARTIAL / CONTRADICTS |
 
 ## Key Findings
 

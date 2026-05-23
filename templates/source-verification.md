@@ -29,7 +29,7 @@ timestamp_utc: {iso8601_utc}
 
 | Source ID | Tier | Rationale | Primary/Secondary/Tertiary | Status |
 |-----------|------|-----------|---------------------------|--------|
-| S1 | HIGH/MEDIUM/LOW | {why} | {P/S/T} | ACCESSIBLE/UNVERIFIABLE/EXCLUDED |
+| S1 | HIGH/MEDIUM/LOW | {why} | {P/S/T/OSS} | ACCESSIBLE/UNVERIFIABLE/EXCLUDED |
 | S2 | ... | ... | ... | ... |
 
 **Source credibility tiers:**
@@ -48,7 +48,7 @@ See `references/risk-of-bias.md` for domain definitions and rating criteria.
 
 | Source ID | Study type | Overall RoB | Key concern | Methodological quality | Reporting quality |
 |-----------|-----------|------------|-------------|----------------------|-------------------|
-| S{n} | simulation/empirical/algorithm/review/documentation | Low / Some concerns / High / Critical | {one-line summary} | Adequate / Concerning / Poor | Adequate / Incomplete / Poor |
+| S{n} | simulation/empirical/algorithm/review/documentation/opensource | Low / Some concerns / High / Critical | {one-line summary} | Adequate / Concerning / Poor | Adequate / Incomplete / Poor |
 
 ### Detailed RoB (per source with Some concerns or higher)
 
