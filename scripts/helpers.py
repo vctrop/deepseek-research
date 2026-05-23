@@ -52,12 +52,14 @@ def resolve_placeholders(template_text: str, skill_dir: str = "", session_slug: 
     result = template_text
     now = datetime.now(timezone.utc)
     result = result.replace("{iso8601_utc}", now.isoformat())
-    result = result.replace("{date}", now.strftime("%Y-%m-%d"))
 
     if session_slug:
-        result = result.replace("{slug}", session_slug)
-        # Also support the compound form used in session headers
+        # Compound form MUST be replaced before individual {date} and {slug},
+        # otherwise they are consumed and {date}-{slug} is never matched.
         result = result.replace("{date}-{slug}", session_slug)
+        result = result.replace("{slug}", session_slug)
+
+    result = result.replace("{date}", now.strftime("%Y-%m-%d"))
 
     # Git hash from skill directory (fallback to "unknown")
     git_hash = "unknown"
