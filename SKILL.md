@@ -73,6 +73,8 @@ Generic — no project-specific infrastructure dependencies.
 | Protocol registry (OSF/local) | `scripts/protocol_registry.py` |
 | Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` |
 | GRADE certainty framework (engineering adaptation — experimental) | `references/grade-framework.md` |
+| GRADE automation (rate_certainty) | `scripts/grade.py` |
+| Living review surveillance (check_update_needed, build_surveillance_queries) | `scripts/living_review.py` |
 
 Each reference is loaded by the pipeline at the stage(s) documented in `pipeline-detail.md`. **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 

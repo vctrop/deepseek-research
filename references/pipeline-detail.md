@@ -786,4 +786,4 @@ If sources < 5: SKIP.
 
 ---
 
-**Cleanup note:** Temporary repository clones in `{oss_clone_dir}` are removed during Close (see Close: Verification §Auto-Run Procedure step 4). They persist only if `persist_sources == true`.
+**Cleanup note:** Temporary repository clones in `{oss_clone_dir}` are removed during Close (see Close: Verification, Auto-Run Procedure step 4). They persist only if `persist_sources == true`.

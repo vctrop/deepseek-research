@@ -8,10 +8,10 @@ When a session has `living_review = true` in its config, this module:
 3. Flags sessions needing updates
 
 Usage:
-    from living_review import check_update_needed, run_surveillance_search
+    from living_review import check_update_needed, build_surveillance_queries
     status = check_update_needed(session_dir, surveillance_interval_days=90)
     if status["needs_update"]:
-        results = run_surveillance_search(session_dir, rq_text, main_topic)
+        queries = build_surveillance_queries(rq_text, main_topic, status["last_search_date"])
 """
 
 from __future__ import annotations
