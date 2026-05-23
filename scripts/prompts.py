@@ -408,7 +408,13 @@ Report all queries and their results in a 'negative_search' section.
 Rules:
 - Grey literature has higher false-positive rate. Apply stricter relevance threshold (≥4 to include).
 - Prefer sources with DOI or persistent identifier over ephemeral URLs.
-- Flag retraction/withdrawal notices if found."""
+- Flag retraction/withdrawal notices if found.
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE source table, search audit, and
+negative search results to `/tmp/dsr-grey-results.md` using the write_file tool.
+This file will be read by the orchestrator after you finish. Your inline response
+can be a summary — the file must contain the full results."""
 
 
 def _build_deep_read_prompt(
