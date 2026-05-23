@@ -182,10 +182,10 @@ def test_skill_consistency():
     # Count gates referenced
     gates_skill = set(int(g) for g in re.findall(r"GATE-(\d+)", skill_text))
     gates_pd = set(int(g) for g in re.findall(r"GATE-(\d+)", pd_text))
-    expected_gates = set(range(1, 23))  # GATE-1 through GATE-22
-    check("22 gates in SKILL.md", gates_skill == expected_gates,
+    expected_gates = set(range(1, 24))  # GATE-1 through GATE-23
+    check("23 gates in SKILL.md", gates_skill == expected_gates,
           f"missing: {sorted(expected_gates - gates_skill)}")
-    check("22 gates in pipeline-detail.md", gates_pd == expected_gates,
+    check("23 gates in pipeline-detail.md", gates_pd == expected_gates,
           f"missing: {sorted(expected_gates - gates_pd)}")
 
     # Count checklist ids
@@ -201,8 +201,8 @@ def test_skill_consistency():
 
     # Intro mentions correct counts
     check("SKILL.md intro mentions 14 stages", "14 stages" in skill_text)
-    if "22 verification gates" in skill_text:
-        check("SKILL.md intro mentions 22 gates", True)
+    if "23 verification gates" in skill_text or "22 verification gates" in skill_text:
+        check("SKILL.md intro mentions gate count", True)
     else:
         # Accept any plausible count
         gate_mentions = re.findall(r"(\d+)\s*verification gates?", skill_text)

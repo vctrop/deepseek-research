@@ -5,7 +5,20 @@
 **Based on:** Full-session execution (RQ: teorias-computacionais-cerebro, 23 sources, 15 stages, Devil's Advocate MINOR verdict)
 **Artifacts inspected:** `SKILL.md`, `helpers.py` (641 lines → 365 lines post-audit), `pipeline-detail.md`, `subagent-prompts.md`, templates/, research-reports/2026-05-22-teorias-computacionais-cerebro/*
 
-## Implementation Status (2026-05-23 audit)
+## Implementation Status (2026-05-23, updated post-Tier-2)
+
+### SPEC-001 Tier 1 (Foundational) — COMPLETE
+### SPEC-001 Tier 2 (Professional Synthesis) — IMPLEMENTED 2026-05-23
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| A1: Meta-Analysis | ✅ | `meta_analysis.py` (478L), GATE-12, Stage 4 |
+| A2: GRADE Certainty | ✅ | `grade.py` (313L), `grade-framework.md`, Stage 4 step 9 |
+| A3: Sensitivity Analysis | ✅ | Stage 4 step 8a (leave-one-out, fail-safe N), GATE-14 |
+| A4: Publication Bias | ✅ | Stage 3 step 9a (diversity, distribution, funnel), GATE-23 |
+| A5: Grey Literature | ✅ | `dsr-grey` prompt, pipeline dispatch, Stage 2 step 8 |
+
+### SPEC-001 Tier 3 (Aspirational) — NOT STARTED
 
 | Phase | Items | Status |
 |-------|-------|--------|

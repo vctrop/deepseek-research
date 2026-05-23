@@ -264,31 +264,33 @@ No manual intervention needed for normal execution.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/source-inventory.md")`.
 2. Extract keywords from `01-rq-brief.md`: use `code_execution` with Python, never shell interpolation.
-2a. **Extract short topic names for negative queries:** Use `code_execution` to extract 3-6 short topic names (1-5 words each, lowercase, e.g. "thousand brain theory", "free energy principle") from the RQ. Pass as `topics="topic1,topic2,..."` to `build_subagent_prompt` for web and opensource axes. This enables per-topic negative queries instead of one giant blob.
+2a. **Extract short topic names for negative queries:** Use `code_execution` to extract 3-6 short topic names (1-5 words each, lowercase, e.g. "thousand brain theory", "free energy principle") from the RQ. Pass as `topics="topic1,topic2,..."` to `build_subagent_prompt` for web, opensource, and grey axes. This enables per-topic negative queries instead of one giant blob.
 3. Identify active axes from `source_axes`. For each active axis, dispatch sub-agents.
 4. **Bibliography dispatch:** load sub-agent prompt spec from `references/subagent-prompts.md`. Use `helpers.build_subagent_prompt('dsr-bibliography', ...)`.
 5. **Web dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-web', ...)`.
 6. **Code dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-code', ...)`.
 7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}')`.
-8. **Parallel dispatch:** all sub-agents in one turn.
-9. Wait for all sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=180000)` for each.
+8. **Grey literature dispatch (conditional):** If `"grey"` in `source_axes`, load sub-agent prompt spec from `references/subagent-prompts.md` §Stage 2: dsr-grey. Use `helpers.build_subagent_prompt('dsr-grey', rq_text='{RQ_TEXT}', main_topic='{main_topic}', topics='{topics}')`. Grey literature targets: arxiv, techrxiv, ProQuest, Google Scholar, institutional repositories. Stricter relevance threshold: ≥4 to include.
+9. **Parallel dispatch:** all sub-agents in one turn.
+10. Wait for all sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=180000)` for each.
    **CRITICAL:** Always use `timeout_ms=180000` (3 min). If a sub-agent times out:
-   - Read its output file if available (`/tmp/dsr-web-results.md`, `/tmp/dsr-opensource-results.md`).
+   - Read its output file if available (`/tmp/dsr-web-results.md`, `/tmp/dsr-opensource-results.md`, `/tmp/dsr-grey-results.md`).
    - Re-dispatch ONCE with reduced scope (fewer queries). If still times out, mark axis DEGRADED.
    - Continue with successful axes. Never block indefinitely.
-9a. **Read sub-agent output files:** After each sub-agent completes, read the full results:
+10a. **Read sub-agent output files:** After each sub-agent completes, read the full results:
     - Web axis: `read_file("/tmp/dsr-web-results.md")`
     - Code axis: `read_file("/tmp/dsr-code-results.md")`
-    - Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
-    - Bibliography axis: the persistence_manifest JSON block in the sub-agent response
+- Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
+     - Grey axis: `read_file("/tmp/dsr-grey-results.md")`
+     - Bibliography axis: the persistence_manifest JSON block in the sub-agent response
     - These files contain the COMPLETE source tables (sub-agent inline responses may be truncated).
-10. **Code Reference Extraction (conditional):** If `"bibliography"` in `source_axes` OR `"web"` in `source_axes`:
+11. **Code Reference Extraction (conditional):** If `"bibliography"` in `source_axes` OR `"web"` in `source_axes`:
    a. Scan sub-agent outputs for repository URL patterns (github.com, gitlab.com, crates.io, pypi.org, npmjs.com, or "available at"/"code:"/"repository:" mentions).
    b. For each URL found: verify accessibility via `fetch_url`, classify relevance (1-5), record source of origin.
    c. Append code references to the source list before deduplication.
    d. `checklist_update(id=15, status="completed")`.
-11. Merge all `returned_sources` + code references with dedup_by_url. `checklist_update(id=4, status="completed")`.
-12. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.1", last_completed_stage="2", current_checklist_item=5)`.
+12. Merge all `returned_sources` + code references with dedup_by_url. `checklist_update(id=4, status="completed")`.
+13. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.1", last_completed_stage="2", current_checklist_item=5)`.
 
 ---
 
@@ -356,6 +358,11 @@ No manual intervention needed for normal execution.
       - **T5 (Source code):** Assign to opensource repositories and code_ref sources. Deep reading will clone to `./oss/` and grep for RQ patterns.
    c. Record in `03-source-verification.md` under `## Deep Read Queue`.
    d. If `deep_reading == false` or source is UNVERIFIABLE: mark as "deep reading skipped."
+9a. **Publication bias assessment (conditional):** If ≥5 sources from web or bibliography axes:
+     a. **Source diversity check:** Count unique author groups/institutions. Compute `same_group_pct = (sources from dominant group / total) * 100`. Flag if ≥50%.
+     b. **Result distribution:** Count positive vs. negative/null results. Flag if negative/null < 20% of total.
+     c. **Funnel plot text description:** If ≥5 sources report same effect with variance, describe symmetry (e.g., "symmetric around pooled estimate" or "asymmetric — fewer small/negative studies").
+     d. Record findings under `## Publication Bias Assessment` in `03-source-verification.md`.
 10. Fill template. `checklist_update(id=8, status="completed")`.
 11. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3.5", last_completed_stage="3", current_checklist_item=9)`.
 
@@ -424,7 +431,35 @@ No manual intervention needed for normal execution.
 6. Evaluate each claim independently: evidence strength, source tier, textual evidence constraint (STRONG requires V-grade, MODERATE requires V or P).
 7. Extract constants: numerical values with units, sources, evidence strength, confidence.
 8. Quantitative synthesis (exploratory meta-analysis): trigger when RQ type is predictive/causal AND ≥3 sources. **Label:** "Exploratory quantitative synthesis — not a validated meta-analysis."
-9. Apply GRADE framework: load `references/grade-framework.md` for overall certainty rating.
+8a. **Sensitivity analysis (conditional):** If meta-analysis ran AND ≥3 sources:
+     a. **Leave-one-out:** Recompute pooled estimate excluding each study in turn. Use `code_execution`:
+        ```python
+        import sys; sys.path.insert(0, '{SKILL_DIR}/scripts')
+        from meta_analysis import sensitivity_leave_one_out
+        loo = sensitivity_leave_one_out(effects, variances)
+        # Report: which study has largest influence? Does exclusion change conclusion?
+        ```
+     b. **Fail-safe N:** Compute Rosenthal's fail-safe N. Use `code_execution`:
+        ```python
+        from meta_analysis import fail_safe_n
+        fsn = fail_safe_n(effects, variances)
+        # Report: how many null studies needed to nullify the finding?
+        ```
+     c. **Report threshold:** Flag when any exclusion changes the pooled estimate by >50% OR changes significance (CI crosses zero) OR fail-safe N < 5.
+9. Apply GRADE framework: load `references/grade-framework.md` for overall certainty rating. For each K-finding, compute certainty via `code_execution`:
+    ```python
+    import sys; sys.path.insert(0, '{SKILL_DIR}/scripts')
+    from grade import rate_certainty
+    result = rate_certainty(
+        finding_id="K{n}",
+        study_designs=[...],  # per contributing source
+        rob_scores=[...],     # from Stage 3 RoB assessment
+        i2=meta_i2,           # from meta-analysis (0 if qualitative)
+        indirectness="direct",
+    )
+    print(json.dumps(result))
+    ```
+    Record `final_symbol`, `final_certainty`, and `rationale` in the synthesis for each K-finding.
 10. Build PRISMA flow diagram: count sources through each stage.
 11. Consensus assessment: per epistemology §Consensus Assessment Rules.
 12. Identify gaps: questions not answered by any source.
@@ -645,11 +680,11 @@ grep_files(pattern="GRADE Certainty", path="{session_dir}/04-synthesis.md")
 Count matches. Expected count = number of K-findings. WARNING if mismatch; FAIL if 0.
 Qualitative RQ: SKIP.
 
-**GATE-14 — Sensitivity flagging.** If meta-analysis ran:
+**GATE-14 — Sensitivity flagging.** If meta-analysis ran (Step 8a executed):
 ```
 grep_files(pattern="Leave-one-out", path="{session_dir}/04-synthesis.md")
 ```
-Must return match if ≥5 studies. WARNING if absent.
+Must return match if ≥3 studies with variance data. FAIL if absent for ≥5 studies; WARNING if absent for 3-4.
 ```
 grep_files(pattern="Fail-safe", path="{session_dir}/04-synthesis.md")
 ```
@@ -734,6 +769,13 @@ ls "{session_dir}/deep-reads/"S*.md 2>/dev/null | head -1 || echo "FAIL: no sour
 FAIL if deep reading was configured but no output exists. WARNING if `_consolidation.md` exists but all sources marked FAILED/INACCESSIBLE.
 If `deep_reading == false`: SKIP.
 If no sources survived to Stage 3.5 (0 sources): SKIP with note "no sources to deep-read."
+
+**GATE-23 — Publication bias flagged.** If sources ≥ 5:
+```
+grep_files(pattern="Publication Bias Assessment", path="{session_dir}/03-source-verification.md")
+```
+Must return match. FAIL if absent and sources ≥ 5 (publication bias assessment is mandatory for adequate source sets).
+If sources < 5: SKIP.
 
 ---
 

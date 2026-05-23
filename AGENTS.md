@@ -10,6 +10,7 @@ SKILL.md (380L)           → Orchestrator entry point. Slim. Never inline templ
                                          placeholder resolution, prompt dispatcher.
     scripts/prompts.py (496L)          → Sub-agent prompt builders (extracted from helpers).
     scripts/meta_analysis.py (478L)    → DerSimonian-Laird, forest plot, fail-safe N.
+    scripts/grade.py (313L)            → GRADE certainty of evidence rating (Tier 2).
   references/                          → Loaded by orchestrator at specific stages.
     configuration.md, epistemology.md, deep-reading.md, iron-rule-c.md, ...
   templates/                           → Loaded with read_file at stage start.

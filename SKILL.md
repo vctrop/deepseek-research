@@ -5,13 +5,13 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 14 stages + adversarial checkpoint + 22 verification gates.
+Deep multi-source research pipeline: 14 stages + adversarial checkpoint + 23 verification gates.
 Deep reading (Stage 3.5) processes full source documents via RLM chunking,
 extracting claims with verbatim textual evidence for human-verifiable synthesis.
 
 **Epistemic scope:** This is a rapid evidence assessment pipeline, not a
 systematic review. All judgments (relevance, bias, evidence grading) are
-performed by LLM sub-agents. The 22 gates verify structural completeness,
+performed by LLM sub-agents. The 23 gates verify structural completeness,
 not truth. See `references/epistemic-limitations.md` for full documentation.
 Every final report MUST include an Epistemic Limitations section.
 Corpus vivo: web-discovered sources are persisted and reused cross-session.
@@ -198,7 +198,7 @@ Key decisions: Scores RQ against 6 criteria. RECOMMEND if ≥ 6. Penalty of -2 i
 ```
 Sub-agents MUST write complete output to `/tmp/dsr-{axis}-results.md` before responding. The orchestrator reads these files after `agent_eval` — never rely on the inline response which may be truncated.
 
-Key decisions: keyword extraction (via code_execution, never shell), topic extraction for per-topic negative queries, parallel dispatch (bibliography + web + code + opensource), mandatory negative search queries, saturation declaration.
+Key decisions: keyword extraction (via code_execution, never shell), topic extraction for per-topic negative queries, parallel dispatch (bibliography + web + code + opensource + grey), mandatory negative search queries, saturation declaration. Grey axis searches arxiv, techrxiv, ProQuest Dissertations, Google Scholar, and institutional repositories (≥4 relevance threshold).
 
 ---
 
@@ -343,6 +343,7 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16/20/21/22 failure
 | GATE-20 | Placeholder resolution — no unresolved braces, literal `PLACEHOLDER`, or midnight timestamps | Always |
 | GATE-21 | Minimum file count — session must have ≥ 7 core files to claim "completed" | Always |
 | GATE-22 | Deep reading enforcement — `deep-reads/_consolidation.md` exists and non-empty if `deep_reading != false` | If `deep_reading != false` |
+| GATE-23 | Publication bias flagged — diversity check present in source verification | If sources ≥ 5 |
 
 > **Executable gate commands:** `references/pipeline-detail.md` §Close: Verification — contains the full
 > `grep_files`, `exec_shell`, `validate_data`, and shell script commands for each gate.
