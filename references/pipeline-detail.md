@@ -21,10 +21,12 @@ to keep the main skill body under 400 lines.
    checklist_write(todos=[
      {"content": "Stage 1: RQ Formulation", "status": "in_progress"},
      {"content": "Stage 1.6: Protocol Finalize", "status": "pending"},
+     {"content": "Stage 1.7: Open-Source Decision", "status": "pending"},
      {"content": "Stage 1.5: Local Corpus Triage", "status": "pending"},
      {"content": "Stage 2: Source Discovery", "status": "pending"},
      {"content": "Stage 2.1: Reconciliation", "status": "pending"},
      {"content": "Stage 2.2: PRESS Review", "status": "pending"},
+     {"content": "Stage 2.6: Code Reference Extraction", "status": "pending"},
      {"content": "Stage 2.5: Persistence", "status": "pending"},
      {"content": "Stage 3: Source Verification", "status": "pending"},
      {"content": "Stage 3.5: Deep Source Reading", "status": "pending"},
@@ -69,6 +71,32 @@ to keep the main skill body under 400 lines.
 
 ---
 
+## Stage 1.7: Open-Source Applicability Decision
+
+> **Who:** Orchestrator (Pro — think carefully about RQ classification)
+> **Output:** `01b-opensource-decision.md`
+> **Template:** `{SKILL_DIR}/templates/opensource-decision.md`
+> **Condition:** Run ALWAYS. Determines whether `opensource` axis should be active.
+
+1. Load template: `read_file("{SKILL_DIR}/templates/opensource-decision.md")`.
+2. Load epistemology for knowledge type classification: `read_file("{SKILL_DIR}/references/epistemology.md")` §Knowledge Type Taxonomy.
+3. Score the RQ against the 6 criteria in the template:
+   - C1: RQ is Procedural or Causal → 3 pts
+   - C2: RQ involves benchmarks, performance, latency → 2 pts
+   - C3: RQ mentions specific tools, libraries, frameworks → 2 pts
+   - C4: RQ is Predictive without established datasets → 1 pt
+   - C5: Answer depends on real implementation evidence → 3 pts
+   - C6: Known OSS repositories implement the domain → 2 pts
+   - **Penalty:** If C6 scores 0, subtract 2 from total.
+4. **If score ≥ 6 (RECOMMEND) AND `"opensource"` NOT in `source_axes`:**
+   - In YOLO mode: auto-add `"opensource"` to `source_axes`. Record: "Auto-enabled — score {score} ≥ 6."
+   - In interactive mode: use `request_user_input` to ask user. Record response.
+5. **If score ≥ 6 AND `"opensource"` already in `source_axes`:** No action needed.
+6. **If score < 6 (NOT RECOMMENDED):** Record decision. Skip opensource discovery.
+7. Fill template. `checklist_update(id=14, status="completed")`.
+
+---
+
 ## Stage 1.5: Local Corpus Triage
 
 > SKILL.md slim header has: Who, Output, Condition, Template, Config vars.
@@ -94,9 +122,15 @@ to keep the main skill body under 400 lines.
 4. **Bibliography dispatch:** load sub-agent prompt spec from `references/subagent-prompts.md`. Use `helpers.build_subagent_prompt('dsr-bibliography', ...)`.
 5. **Web dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-web', ...)`.
 6. **Code dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-code', ...)`.
-7. **Parallel dispatch:** all sub-agents in one turn.
-8. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
-9. Merge all `returned_sources` with dedup_by_url. `checklist_update(id=4, status="completed")`.
+7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}')`.
+8. **Parallel dispatch:** all sub-agents in one turn.
+9. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
+10. **Code Reference Extraction (conditional):** If `"bibliography"` in `source_axes` OR `"web"` in `source_axes`:
+   a. Scan sub-agent outputs for repository URL patterns (github.com, gitlab.com, crates.io, pypi.org, npmjs.com, or "available at"/"code:"/"repository:" mentions).
+   b. For each URL found: verify accessibility via `fetch_url`, classify relevance (1-5), record source of origin.
+   c. Append code references to the source list before deduplication.
+   d. `checklist_update(id=15, status="completed")`.
+11. Merge all `returned_sources` + code references with dedup_by_url. `checklist_update(id=4, status="completed")`.
 
 ---
 
@@ -155,6 +189,7 @@ to keep the main skill body under 400 lines.
 9. **Prepare for deep reading.** If `deep_reading != false`:
    a. Load deep reading reference: `read_file("{SKILL_DIR}/references/deep-reading.md")`.
    b. For each source, collect metadata: source_id, source_path_or_url, source_title. Estimate document tier.
+      - **T5 (Source code):** Assign to opensource repositories and code_ref sources. Deep reading will clone to `./oss/` and grep for RQ patterns.
    c. Record in `03-source-verification.md` under `## Deep Read Queue`.
    d. If `deep_reading == false` or source is UNVERIFIABLE: mark as "deep reading skipped."
 10. Fill template. `checklist_update(id=8, status="completed")`.
@@ -170,11 +205,12 @@ to keep the main skill body under 400 lines.
 1. Load deep reading methodology: `read_file("{SKILL_DIR}/references/deep-reading.md")`.
 2. Load sub-agent prompt spec: `read_file("{SKILL_DIR}/references/subagent-prompts.md")` §Stage 3.5.
 3. Build the deep read queue from Stage 3 output (`03-source-verification.md` §Deep Read Queue).
-4. Dispatch sub-agents in parallel — one per source. Use `helpers.build_subagent_prompt('dsr-deep-read', ...)`. If >10 sources, batch in groups of 10.
-5. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
-6. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section.
-7. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M). Write `_consolidation.md`.
-8. `checklist_update(id=9, status="completed")`.
+4. **For T5 (source code) sources:** Dispatch sub-agents in parallel — one per T5 source. Load sub-agent prompt spec from `references/subagent-prompts.md` §Stage 3.5 dsr-deep-read-t5. Use `helpers.build_subagent_prompt('dsr-deep-read-t5', source_id='{source_id}', repo_url='{repo_url}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}', oss_clone_dir='{oss_clone_dir}')`.
+5. **For non-T5 sources:** Dispatch sub-agents in parallel — one per source. Use `helpers.build_subagent_prompt('dsr-deep-read', ...)`. Dispatch all T5 and non-T5 sub-agents in a single turn. If >10 sources total, batch in groups of 10.
+6. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
+7. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section.
+8. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write `_consolidation.md`.
+9. `checklist_update(id=9, status="completed")`.
 
 ---
 
@@ -286,7 +322,7 @@ export PERSIST_SOURCES="{persist_sources}"
 export PROTOCOL_REGISTRY="{protocol_registry}"
 export STAKEHOLDER_REVIEW="{stakeholder_review}"
 SESSION_DIR="{output_dir}/{date}-{slug}"
-expected="01-rq-brief.md MANIFEST.txt"
+expected="01-rq-brief.md 01b-opensource-decision.md MANIFEST.txt"
 [ "$PERSIST_SOURCES" = "true" ] && expected="$expected 01a-local-corpus-triage.md"
 [ "$PROTOCOL_REGISTRY" != "none" ] && expected="$expected protocol-registration.json"
 expected="$expected 02-source-inventory.md 03-source-verification.md 04-synthesis.md 04a-devils-advocate.md 05-report.md 05-plain-summary.md 05-decision-brief.md"
@@ -327,7 +363,7 @@ exec_shell(command: "python3 {SKILL_DIR}/scripts/index_sources.py check-unindexe
 ```
 grep_files(pattern="PRISMA 2020 Flow Diagram", path="{session_dir}/02-source-inventory.md")
 ```
-Must return match. Count PRISMA line items present: each line not "n = 0" counts as 1. Total expected: 15 items. WARNING if < 80%; FAIL if < 50%.
+Must return match. Count PRISMA line items present: each line not "n = 0" counts as 1. Total expected: 20 items (bibliography, web, codebase, opensource, code_refs, grey, and their associated counts). WARNING if < 80%; FAIL if < 50%.
 ```
 grep_files(pattern="PRESS Review", path="{session_dir}/02-source-inventory.md")
 ```
@@ -337,7 +373,7 @@ Must return match. FAIL if absent.
 ```
 grep_files(pattern="Overall RoB", path="{session_dir}/03-source-verification.md")
 ```
-Count matches. Expected count = number of sources in inventory. FAIL if mismatch.
+Count matches. Expected count = number of sources in inventory (including opensource repositories and code_refs). FAIL if mismatch.
 ```
 grep_files(pattern="Study type", path="{session_dir}/03-source-verification.md")
 ```
@@ -426,5 +462,19 @@ grep_files(pattern="SHA256", path="{session_dir}/MANIFEST.txt")
 grep_files(pattern="stage_completion", path="{session_dir}/MANIFEST.txt")
 ```
 Both must return match. FAIL if absent.
+
+---
+
+**Cleanup:** Remove temporary clones of repositories that were not persisted.
+```
+if [ -d "{oss_clone_dir}" ]; then
+  for repo_dir in {oss_clone_dir}/*/; do
+    echo "Cleaning up clone: $repo_dir"
+    rm -rf "$repo_dir"
+  done
+fi
+```
+Clones in `{oss_clone_dir}` are temporary artifacts for deep reading. They are removed after session close
+unless `persist_sources == true` (in which case they remain for future sessions).
 
 `checklist_update(id=13, status="completed")`.

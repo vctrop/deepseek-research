@@ -25,11 +25,17 @@ Generic — no project-specific infrastructure dependencies.
 **Stage 2 sub-agents (discovery):**
 `web_search`, `fetch_url`, `grep_files`, `read_file`, `file_search`, `rlm_open`, `rlm_eval`, `rlm_close`, `write_file`
 
+**Stage 2 sub-agent (opensource):**
+`web_search`, `fetch_url`, `write_file`
+
 **Stage 2.1 sub-agent (tiebreak):**
 `grep_files`, `read_file`, `file_search`, `write_file`
 
-**Stage 3.5 sub-agents (deep reading):**
+**Stage 3.5 sub-agents (deep reading — non-T5):**
 `rlm_open`, `rlm_eval`, `rlm_configure`, `rlm_close`, `read_file`, `fetch_url`, `handle_read`, `write_file`, `grep_files`
+
+**Stage 3.5 sub-agents (deep reading — T5 source code):**
+`exec_shell`, `grep_files`, `read_file`, `write_file`, `fetch_url`, `handle_read`
 
 **Stage 4.5 sub-agent (Devil's Advocate):**
 `read_file`, `write_file`
@@ -62,10 +68,11 @@ Generic — no project-specific infrastructure dependencies.
 | Error recovery | `references/error-recovery.md` | Any stage (on error) |
 | Model matrix + thinking budget | `references/model-matrix.md` | Before sub-agent dispatch |
 | Context budget + RLM thresholds | `references/context-budget.md` | Stage 2, Stage 3, Stage 4 |
-| Sub-agent prompts | `references/subagent-prompts.md` | Stage 2, Stage 3.5, Stage 4.5 |
+| Sub-agent prompts (incl. dsr-opensource, dsr-deep-read-t5) | `references/subagent-prompts.md` | Stage 2, Stage 3.5, Stage 4.5 |
 | Python helpers (SHA256, index ops, kappa, prompt builder) | `scripts/helpers.py` | All stages (via `code_execution`) |
 | PRESS search strategy peer review | `references/press-checklist.md` | Stage 2.2 (web axis) |
-| Risk of Bias assessment | `references/risk-of-bias.md` | Stage 3 (if sources ≥1) |
+| Risk of Bias assessment (incl. opensource repository domains) | `references/risk-of-bias.md` | Stage 3 (if sources ≥1) |
+| Open-Source applicability decision template | `templates/opensource-decision.md` | Stage 1.7 |
 | Protocol registry (OSF/local) | `scripts/protocol_registry.py` | Stage 1.6 (if `protocol_registry != "none"`) |
 | Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` | Stage 4 (if quantitative synthesis) |
 | GRADE certainty framework (engineering adaptation — experimental) | `references/grade-framework.md` | Stage 4 (quantitative RQs) |
@@ -102,6 +109,19 @@ Key decisions: RQ text, knowledge type classification, operational definitions, 
 
 ---
 
+### Stage 1.7: Open-Source Applicability Decision
+
+**Who:** Orchestrator (Pro — think carefully about RQ classification and domain mapping)
+**Output:** `01b-opensource-decision.md`
+**Template:** `{SKILL_DIR}/templates/opensource-decision.md`
+**Condition:** Run ALWAYS. Determines whether `opensource` axis should be active.
+
+> **Detailed steps:** `references/pipeline-detail.md` §Stage 1.7
+
+Key decisions: Scores RQ against 6 criteria. RECOMMEND if ≥ 6. Penalty of -2 if no known OSS repositories (C6=0). In YOLO mode, auto-enables `opensource` axis when recommended. In interactive mode, prompts user.
+
+---
+
 ### Stage 1.5: Local Corpus Triage
 
 **Who:** Orchestrator (Pro — minimal thinking)
@@ -123,7 +143,7 @@ Key decisions: RQ text, knowledge type classification, operational definitions, 
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 2
 
-Key decisions: keyword extraction (via code_execution, never shell), parallel dispatch (bibliography + web + code), mandatory negative search queries, saturation declaration.
+Key decisions: keyword extraction (via code_execution, never shell), parallel dispatch (bibliography + web + code + opensource), mandatory negative search queries, code reference extraction from papers (before dedup), saturation declaration. Opensource axis searches GitHub, GitLab, and package registries for implementations, benchmarks, and libraries.
 
 ---
 
@@ -279,6 +299,7 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16 failures must be
 {output_dir}/{date}-{slug}/
 ├── MANIFEST.txt                     # SHA256 + protocol DOI + stage completion log
 ├── 01-rq-brief.md
+├── 01b-opensource-decision.md       # Stage 1.7 output (always)
 ├── protocol-registration.json       # only if protocol_registry != "none"
 ├── 01a-local-corpus-triage.md       # only if bibliography axis active
 ├── 02-source-inventory.md           # omitted if 0 sources
