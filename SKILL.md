@@ -5,7 +5,7 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 13 stages + adversarial checkpoint + 19 verification gates.
+Deep multi-source research pipeline: 13 stages + adversarial checkpoint + 22 verification gates.
 Deep reading (Stage 3.5) processes full source documents via RLM chunking,
 extracting claims with verbatim textual evidence for human-verifiable synthesis.
 
@@ -309,9 +309,9 @@ Key output: Final report includes Epistemic Limitations section (mandatory), dec
 
 **Who:** Orchestrator (Pro — minimal thinking)
 
-Run all 19 gates on the session directory. Each gate is a structural integrity check.
+Run all 22 gates on the session directory. Each gate is a structural integrity check.
 Gates verify form, not truth — see `references/epistemic-limitations.md` §L2.
-Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16 failures must be resolved.
+Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16/20/21/22 failures must be resolved.
 
 | Gate | Scope | Condition |
 |------|-------|-----------|
@@ -334,6 +334,9 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16 failures must be
 | GATE-17 | Living review cadence — surveillance date | If `living_review == true` |
 | GATE-18 | Textual evidence + human verifiability | If `deep_reading != false` |
 | GATE-19 | Session MANIFEST integrity — SHA256 + stage log | Always |
+| GATE-20 | Placeholder resolution — no unresolved braces, literal `PLACEHOLDER`, or midnight timestamps | Always |
+| GATE-21 | Minimum file count — session must have ≥ 7 core files to claim "completed" | Always |
+| GATE-22 | Deep reading enforcement — `deep-reads/_consolidation.md` exists and non-empty if `deep_reading != false` | If `deep_reading != false` |
 
 > **Executable gate commands:** `references/pipeline-detail.md` §Close: Verification — contains the full
 > `grep_files`, `exec_shell`, `validate_data`, and shell script commands for each gate.

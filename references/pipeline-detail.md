@@ -9,6 +9,49 @@ to keep the main skill body under 400 lines.
 
 ---
 
+## Stage Execution Order
+
+Stages are executed in this sequence (pipeline-detail.md sections follow
+this order; stage numbering reflects logical grouping, not execution order):
+
+```
+Stage 1   (RQ Formulation)
+  ↓
+Stage 1.7 (Open-Source Applicability Decision) — runs ALWAYS, before protocol
+  ↓
+Stage 1.6 (Protocol Finalize)
+  ↓
+Stage 1.5 (Local Corpus Triage) — conditional: bibliography axis + persist_sources
+  ↓
+Stage 2   (Source Discovery) — parallel sub-agents per axis
+  ↓
+Stage 2.1 (Reconciliation) — conditional: ≥2 axes returned sources
+  ↓
+Stage 2.2 (PRESS Review) — conditional: web axis active
+  ↓
+Stage 2.5 (Persistence) — conditional: persist_sources == true
+  ↓
+Stage 3   (Source Verification)
+  ↓
+Stage 3.5 (Deep Source Reading) — conditional: deep_reading != false
+  ↓
+Stage 4   (Synthesis)
+  ↓
+Stage 4.5 (Devil's Advocate Checkpoint)
+  ↓
+Stage 4.6 (Stakeholder Review) — conditional: stakeholder_review == true
+  ↓
+Stage 5   (Terminal Report)
+  ↓
+Close     (Verification — 19 gates)
+```
+
+**Checklist ID notes:**
+- `id=14` is used for: Stage 1.7 output (always runs), Stage 2.6 Code Reference Extraction (inline sub-step of Stage 2), and Close Verification. These are independent — each runs in a different phase and the id is re-checked at its respective point.
+- `id=15` is used for Stage 2.6 Code Reference Extraction (sub-step within Stage 2).
+
+---
+
 ## Multi-RQ Batch Mode
 
 When the user provides multiple research questions (e.g., "pesquise todas as áreas de ideias.md"),
@@ -18,7 +61,8 @@ the orchestrator can run them sequentially in batch mode:
 2. **For each RQ in the list:**
    a. Run the full pipeline (Stages 1-5 + Close) independently.
    b. Each RQ produces its own session directory: `{output_dir}/{date}-{slug(rq)}/`.
-   c. Between RQs: write a batch manifest `{output_dir}/_batch-manifest.json` recording progress.
+   c. **After every 3 RQs (or when context indicator ≥ 60%):** Request `/compact` + "continue deep research batch". Never run >3 RQs without context reset. See anti-pattern #16.
+   d. **After each RQ completes AND passes Close gates:** Verify output files exist via `list_dir`, THEN write batch manifest entry. Never write manifest optimistically before files are confirmed on disk.
 3. **On crash mid-batch:** Read `_batch-manifest.json` to determine which RQs completed.
    Resume from the first incomplete RQ. The `.session-state.json` within each session dir
    provides finer-grained intra-RQ recovery.
@@ -40,6 +84,19 @@ the orchestrator can run them sequentially in batch mode:
   ]
 }
 ```
+
+---
+
+## Context Budget Monitoring
+
+**CRITICAL:** The orchestrator accumulates references, templates, and stage outputs.
+To prevent TUI freeze from context overflow:
+
+- **After each stage**, estimate tokens consumed (files read × ~1.3 chars/token for code, ~1.0 for prose).
+- **Warning threshold:** ≥ 120K tokens → emit: "⚠ Context pressure: {N}K tokens estimated. Consider `/compact` after this stage."
+- **Halt threshold:** ≥ 180K tokens → **PAUSE the pipeline.** Emit: "⛔ Context critical: {N}K tokens. Write session state and request `/compact` + 'continue deep research {slug}'."
+- **Stage 3.5 and Stage 4** are the highest-risk stages for context overflow. Monitor especially after deep reading.
+- **After `/compact`:** Read MANIFEST.txt and `.session-state.json`. Skip completed stages. Resume from current stage.
 
 ---
 
@@ -132,6 +189,7 @@ No manual intervention needed for normal execution.
 3. If `protocol_registry == "local"`: write `protocol-registration.json` to session dir via `protocol_registry.register_local()`.
 4. Record registration method and identifier in `MANIFEST.txt`.
 5. `checklist_update(id=2, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="1.7", last_completed_stage="1.6", current_checklist_item=2)`.
 
 ---
 
@@ -158,6 +216,7 @@ No manual intervention needed for normal execution.
 5. **If score ≥ 6 AND `"opensource"` already in `source_axes`:** No action needed.
 6. **If score < 6 (NOT RECOMMENDED):** Record decision. Skip opensource discovery.
 7. Fill template. `checklist_update(id=14, status="completed")`.
+8. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="1.5", last_completed_stage="1.7", current_checklist_item=3)`.
 
 ---
 
@@ -173,6 +232,7 @@ No manual intervention needed for normal execution.
 4. For each keyword, query the index. `code_execution` → `index_sources.query(local_index_path, keyword, max_results=20)`.
 5. LLM relevance judgment for each candidate (relevance ≥ 3 → `local_sources`).
 6. Fill template. `checklist_update(id=3, status="completed")`.
+7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2", last_completed_stage="1.5", current_checklist_item=4)`.
 
 ---
 
@@ -188,9 +248,14 @@ No manual intervention needed for normal execution.
 6. **Code dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-code', ...)`.
 7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}')`.
 8. **Parallel dispatch:** all sub-agents in one turn.
-9. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
+9. Wait for all sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=180000)` for each.
+   **CRITICAL:** Always use `timeout_ms=180000` (3 min). If a sub-agent times out:
+   - Read its output file if available (`/tmp/dsr-web-results.md`, `/tmp/dsr-opensource-results.md`).
+   - Re-dispatch ONCE with reduced scope (fewer queries). If still times out, mark axis DEGRADED.
+   - Continue with successful axes. Never block indefinitely.
 9a. **Read sub-agent output files:** After each sub-agent completes, read the full results:
     - Web axis: `read_file("/tmp/dsr-web-results.md")`
+    - Code axis: `read_file("/tmp/dsr-code-results.md")`
     - Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
     - Bibliography axis: the persistence_manifest JSON block in the sub-agent response
     - These files contain the COMPLETE source tables (sub-agent inline responses may be truncated).
@@ -200,6 +265,7 @@ No manual intervention needed for normal execution.
    c. Append code references to the source list before deduplication.
    d. `checklist_update(id=15, status="completed")`.
 11. Merge all `returned_sources` + code references with dedup_by_url. `checklist_update(id=4, status="completed")`.
+12. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.1", last_completed_stage="2", current_checklist_item=5)`.
 
 ---
 
@@ -212,8 +278,10 @@ No manual intervention needed for normal execution.
 1. Identify disagreements (one axis included a source another excluded). Extract source metadata.
 2. For each disagreement, dispatch tiebreak sub-agent.
 3. Load tiebreak spec from `references/subagent-prompts.md`. `helpers.build_subagent_prompt('dsr-tiebreak', ...)`.
-4. Wait for tiebreak sub-agents.
+4. Wait for tiebreak sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=120000)` for each.
+   On timeout: mark disagreement as UNRESOLVED, default to INCLUDE (inclusive screening).
 5. Build reconciliation matrix: agreement %, counts. If κ < `agreement_threshold`: WARNING. `checklist_update(id=5, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.2", last_completed_stage="2.1", current_checklist_item=6)`.
 
 ---
 
@@ -226,6 +294,7 @@ No manual intervention needed for normal execution.
 3. Re-run rule: if ≥2 elements INADEQUATE for any query, re-run search with corrected query.
 4. Write PRESS Review section to `02-source-inventory.md` (append).
 5. `checklist_update(id=6, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.5", last_completed_stage="2.2", current_checklist_item=7)`.
 
 ---
 
@@ -240,6 +309,7 @@ No manual intervention needed for normal execution.
 3. Process reused_local: update sessions_used for each.
 4. Emit summary: "Corpus updated: {N} new, {M} reused."
 5. `checklist_update(id=7, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3", last_completed_stage="2.5", current_checklist_item=8)`.
 
 ---
 
@@ -249,6 +319,7 @@ No manual intervention needed for normal execution.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/source-verification.md")`.
 2. For each source from Stage 2 inventory: fetch header or first 2KB to verify accessibility.
+2a. **Cross-check title against fetched content.** For each source, extract the `<title>` or first heading from the fetched content. Compare against the Stage 2 title using fuzzy matching (`difflib.SequenceMatcher` or equivalent). If similarity < 0.5: flag the source as "⚠ TITLE MISMATCH — possible hallucinated source." Re-dispatch discovery sub-agent for a replacement source. If similarity ≥ 0.5 but < 0.8: flag as "⚠ TITLE DRIFT — verify manually."
 3. Classify as ACCESSIBLE / INACCESSIBLE / PARTIAL (paywall, truncated).
 4. Classify source type: primary / secondary / tertiary (per epistemology §Primary vs Secondary).
 5. Load risk-of-bias: `read_file("{SKILL_DIR}/references/risk-of-bias.md")`.
@@ -262,6 +333,7 @@ No manual intervention needed for normal execution.
    c. Record in `03-source-verification.md` under `## Deep Read Queue`.
    d. If `deep_reading == false` or source is UNVERIFIABLE: mark as "deep reading skipped."
 10. Fill template. `checklist_update(id=8, status="completed")`.
+11. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3.5", last_completed_stage="3", current_checklist_item=9)`.
 
 ---
 
@@ -296,12 +368,19 @@ No manual intervention needed for normal execution.
        - If not cloned: note in sub-agent prompt that git clone is needed.
        - Dispatch: `agent_open(name="dr-t5-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read-t5', ...))`.
     b. **Non-T5 sources in batch:** Dispatch: `agent_open(name="dr-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read', ...))`.
-    c. **Wait for batch:** `agent_eval(agent_id="...", block=true)` for each sub-agent in this batch.
+    c. **Wait for batch:** `agent_eval(agent_id="...", block=true, timeout_ms=300000)` for each sub-agent in this batch.
+       **CRITICAL:** Deep reading can take 2-5 min per source. Use `timeout_ms=300000` (5 min).
+       On timeout: mark source as FAILED in consolidation. Re-dispatch ONCE with reduced scope.
+       If still times out: record "deep-read failed — timeout" in `_consolidation.md` and continue.
     d. **Batch checkpoint:** Write `_consolidation.md` partial update after each batch completes. This ensures progress is preserved even if later batches fail.
+       ```python
+       code_execution → helpers.write_session_state("{session_dir}", deep_read_batch_progress="batch {N}/{total}", pending_sources=[...])
+       ```
 6. After all batches complete: final consolidation.
 7. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section. Missing outputs → re-dispatch individually or mark as FAILED.
 8. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write final `_consolidation.md`.
 9. `checklist_update(id=9, status="completed")`.
+10. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4", last_completed_stage="3.5", current_checklist_item=10)`.
 
 ---
 
@@ -356,6 +435,7 @@ No manual intervention needed for normal execution.
     d. Close the RLM session after synthesis: `rlm_close(name="synth-{slug}")`.
     e. Fallback: if RLM is unavailable or source count ≤10, process claims directly in the orchestrator context.
 15. Fill template. `checklist_update(id=10, status="completed")`.
+16. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.5", last_completed_stage="4", current_checklist_item=11)`.
 
 ---
 
@@ -366,9 +446,12 @@ No manual intervention needed for normal execution.
 1. Load Devil's Advocate spec: `read_file("{SKILL_DIR}/references/subagent-prompts.md")` §Stage 4.5.
 2. Build prompt: `helpers.build_subagent_prompt('dsr-da', ...)`.
 3. Dispatch sub-agent: `agent_open(name="dsr-da", model="deepseek-v4-pro", ...)`.
-4. Wait: `agent_eval(agent_id="...", block=true)`.
+4. Wait: `agent_eval(agent_id="...", block=true, timeout_ms=180000)`.
+   **CRITICAL:** Devil's Advocate review can take 1-3 min. Use `timeout_ms=180000` (3 min).
+   On timeout: orchestrator applies Devil's Advocate checklist inline against `04-synthesis.md`.
 5. Read output: `read_file("{session_dir}/04a-devils-advocate.md")`.
 6. Apply corrections to `04-synthesis.md`. Sub-agent NEVER modifies `04-synthesis.md` directly. `checklist_update(id=11, status="completed")`.
+7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.6", last_completed_stage="4.5", current_checklist_item=12)`.
 
 ---
 
@@ -383,6 +466,7 @@ No manual intervention needed for normal execution.
 3. Document feedback and actions taken in the template.
 4. Apply feedback to `04-synthesis.md` before Stage 5.
 5. `checklist_update(id=12, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="5", last_completed_stage="4.6", current_checklist_item=13)`.
 
 ---
 
@@ -396,6 +480,7 @@ No manual intervention needed for normal execution.
 4. Append data supplement if numerical data was extracted. `read_file("{SKILL_DIR}/templates/data-supplement.json")`.
 5. No knowledge entity creation. Report is the final artifact.
 6. `checklist_update(id=13, status="completed")`.
+7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="close", last_completed_stage="5", current_checklist_item=14)`.
 
 ---
 
@@ -405,14 +490,14 @@ No manual intervention needed for normal execution.
 
 ### Auto-Run Procedure
 
-The orchestrator MUST execute all 19 gates systematically — never skip this stage.
+The orchestrator MUST execute all 22 gates systematically — never skip this stage.
 Gates verify structural completeness, not truth (see `references/epistemic-limitations.md` §L2).
 
 1. `checklist_update(id=14, status="in_progress")`.
-2. For each gate GATE-1 through GATE-19:
+2. For each gate GATE-1 through GATE-22:
    a. Execute the gate command(s) described below.
    b. Record result: PASS / FAIL / WARNING / UNVERIFIABLE / SKIP.
-   c. If FAIL on a blocking gate (GATE-1, GATE-2, GATE-3, GATE-5, GATE-8, GATE-16):
+   c. If FAIL on a blocking gate (GATE-1, GATE-2, GATE-3, GATE-5, GATE-8, GATE-16, GATE-20, GATE-21, GATE-22):
       - Document the failure reason.
       - Attempt resolution (e.g., missing file → write it; bare claim → qualify it).
       - Re-run the gate after resolution.
@@ -586,6 +671,43 @@ grep_files(pattern="SHA256", path="{session_dir}/MANIFEST.txt")
 grep_files(pattern="stage_completion", path="{session_dir}/MANIFEST.txt")
 ```
 Both must return match. FAIL if absent.
+
+**GATE-20 — Placeholder resolution.** Verify no unresolved placeholders remain in output files:
+```
+grep_files(pattern="SKILL_DIR_HASH|\\\\{SKILL_DIR\\\\}|\\\\{output_dir\\\\}|\\\\{date\\\\}|T00:00:00Z|\\\\(Placeholder\\\\)", path="{session_dir}/", include=["*.md", "*.json"])
+```
+Must return 0 matches. FAIL if any unresolved placeholders found.
+Re-check after resolution: re-run the grep. Only PASS when all placeholders are resolved.
+
+**GATE-21 — Minimum file count for completed status.**
+A session claiming "completed" or "complete" must have at minimum these 7 core files present and non-empty:
+- `01-rq-brief.md`
+- `02-source-inventory.md` (or documented reason for absence)
+- `04-synthesis.md`
+- `04a-devils-advocate.md`
+- `05-report.md`
+- `05-plain-summary.md`
+- `05-decision-brief.md`
+```
+for f in 01-rq-brief.md 02-source-inventory.md 04-synthesis.md 04a-devils-advocate.md 05-report.md 05-plain-summary.md 05-decision-brief.md; do
+  [ -s "{session_dir}/$f" ] || echo "FAIL: $f missing or empty"
+done
+```
+FAIL if any core file is missing. If FAIL: change MANIFEST status from "complete"/"completed" to "INCOMPLETE — {N} core files missing."
+Sessions with < 5 files: mark as "DEGRADED — pipeline truncated."
+
+**GATE-22 — Deep reading enforcement.** If `deep_reading != false`:
+```
+[ -f "{session_dir}/deep-reads/_consolidation.md" ] || echo "FAIL: deep-reads/_consolidation.md missing"
+[ -s "{session_dir}/deep-reads/_consolidation.md" ] || echo "FAIL: deep-reads/_consolidation.md empty"
+```
+Must find at least one `{session_dir}/deep-reads/S*.md` file:
+```
+ls "{session_dir}/deep-reads/"S*.md 2>/dev/null | head -1 || echo "FAIL: no source deep-read files found"
+```
+FAIL if deep reading was configured but no output exists. WARNING if `_consolidation.md` exists but all sources marked FAILED/INACCESSIBLE.
+If `deep_reading == false`: SKIP.
+If no sources survived to Stage 3.5 (0 sources): SKIP with note "no sources to deep-read."
 
 ---
 
