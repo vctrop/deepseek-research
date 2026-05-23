@@ -539,7 +539,7 @@ Gates verify structural completeness, not truth (see `references/epistemic-limit
 ## Gate Results
 | Gate | Result | Notes |
 |------|--------|-------|
-| GATE-1 | PASS | All 13 expected files present |
+| GATE-1 | PASS | All expected output files present |
 | GATE-2 | PASS | Session recorded in index |
 | GATE-3 | PASS | 0 bare claims (2 false positives cleared) |
 | ... | ... | ... |
