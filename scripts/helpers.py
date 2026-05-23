@@ -285,6 +285,22 @@ def check_iron_rule_c_deterministic(report_path: str, synthesis_path: str) -> st
                 ):
                     excluded = True
 
+                # 5. Auto-declaração da skill (ex: "No bare claims (validated, proved, ...)")
+                if _re.search(
+                    r'\b(?:no\s+bare\s+claims?|bare\s+claims?|iron\s+rule\s+c|'
+                    r'qualified\s+language|all\s+claims\s+in\s+this\s+report|'
+                    r'claims?\s+nus?)\b',
+                    context
+                ):
+                    excluded = True
+
+                # 6. Palavras proibidas listadas em sequência (ex: "validated, proved, confirmed...")
+                bare_words_in_context = sum(
+                    1 for w in BARE_CLAIM_WORDS if w in context
+                )
+                if bare_words_in_context >= 4:
+                    excluded = True  # É uma lista de palavras proibidas, não um claim
+
                 if not excluded:
                     violations.append({
                         "file": str(fpath.name),
