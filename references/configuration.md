@@ -7,7 +7,7 @@ If absent, defaults are used. User can override per-session in the prompt.
 
 | Variable | Default | Description |
 |---|---|---|
-| `source_axes` | `["bibliography", "codebase", "web"]` | Discovery axes. Add `"grey"` for grey literature (arxiv, techrxiv, theses, conferences) |
+| `source_axes` | `["bibliography", "codebase", "web"]` | Discovery axes. Add `"grey"` for grey literature (arxiv, techrxiv, theses, conferences). Add `"opensource"` for open-source repository search (GitHub, GitLab, package registries) |
 | `bibliography_path` | `"bibliography/"` | Path to bibliography index |
 | `output_dir` | `"research-reports/"` | Session output directory |
 | `session_index` | `"deep-search-sessions.json"` | JSON array of session history |
@@ -25,6 +25,7 @@ If absent, defaults are used. User can override per-session in the prompt.
 | `deep_reading` | `true` | When `true`, Stage 3.5 deep-reads each source via RLM chunking for verbatim textual evidence |
 | `living_review` | `false` | When `true`, enable update cycles with surveillance searches |
 | `surveillance_interval_days` | `90` | Days between surveillance searches for living reviews |
+| `oss_clone_dir` | `"oss/"` | Directory for cloning open-source repositories during T5 deep reading |
 
 ## Session Index Format
 
@@ -56,6 +57,7 @@ persist_sources = true
 integration_checks = ["cargo test --workspace"]
 max_sources_per_axis = 30
 saturation_window = 5
+oss_clone_dir = "oss/"
 ```
 
 ## Example: Project Without Bibliography

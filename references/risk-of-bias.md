@@ -18,6 +18,24 @@ which RoB tool to apply:
 | **Simulation study** | Custom (adapted from ASME V&V 40) | D1: Model validity (conceptual model), D2: Parameter uncertainty, D3: Verification (code), D4: Validation (results vs. reality), D5: Sensitivity analysis |
 | **Survey / review / meta-analysis** | ROBIS | D1: Study eligibility criteria, D2: Identification and selection of studies, D3: Data collection and study appraisal, D4: Synthesis and findings |
 | **Documentation / standard** | Custom (lightweight) | D1: Authority (recognized body?), D2: Currency (last updated?), D3: Versioning (change history?) |
+| **Open-source repository** | Custom (adapted from OpenSSF Scorecard) | D1: License & governance, D2: Activity & maintenance, D3: Test coverage & CI, D4: Documentation quality, D5: Community adoption |
+
+---
+
+---
+
+### Open-Source Repository Domains
+
+| Domain | Low | Some concerns | High | Critical |
+|--------|-----|---------------|------|----------|
+| **D1: License & governance** | OSI-approved license (MIT, Apache-2.0, GPL, etc.); clear governance model (CLA/DCO, CODEOWNERS) | License present but non-standard; governance informal but functional | No license file; unclear copyright ownership | Explicitly proprietary or license prohibits use |
+| **D2: Activity & maintenance** | Last commit < 1 month; issues responded to within 2 weeks; recent release < 3 months | Last commit 1-6 months; slow issue response; release within 1 year | Last commit 6-12 months; many stale issues/PRs | Last commit > 1 year; repository appears abandoned |
+| **D3: Test coverage & CI** | CI configured and passing; test coverage ≥ 70% documented; integration/benchmark tests present | CI present but flaky; test coverage unclear or < 70% | No CI; tests exist but not automated | No tests at all; no way to verify correctness |
+| **D4: Documentation quality** | Comprehensive README with examples; API docs generated; architecture/tutorial docs present | README present with usage; API docs partial or outdated | Minimal README only; no usage examples | No documentation beyond auto-generated template |
+| **D5: Community adoption** | > 1,000 stars; > 100 dependents; cited in ≥ 3 papers; used by recognized organizations | 100-1,000 stars; 10-100 dependents; cited in 1-2 papers | < 100 stars; < 10 dependents; no academic citations | Zero stars; single-user project; no external usage |
+| **D6: Algorithmic fidelity** *(only when canonical reference exists)* | Implementation matches canonical description exactly (verified by cross-reference with V-grade paper claim); constants, formulas, and algorithm structure are consistent | Minor discrepancies: different constants, undocumented optimizations, or simplified formula that preserves core behavior | Significant deviations: missing steps, different algorithm variant, or optimization that changes output semantics | Implements a different algorithm than claimed; docstring says "Le Gratiet (2013)" but code shows Kennedy & O'Hagan (2000) formulation |
+
+**D6 applicability:** This domain only applies when a canonical reference (paper with V-grade claim) exists for comparison. Without a canonical reference, mark D6 as "Unverifiable — no canonical reference." D6 is the primary gating domain for E-grade STRONG: a repository must score Low on D6 for its E-grade claims to reach STRONG (see `references/deep-reading.md` §Rule for synthesis).
 
 ---
 

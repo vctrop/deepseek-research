@@ -32,7 +32,8 @@ human verification (GATE-18).
 | Source is UNVERIFIABLE (Stage 3) | Skip deep reading for that source. Mark as "not deep-read — unverifiable." |
 | Source is bibliography (local file) | Deep read via RLM chunking of the local file. |
 | Source is web (URL) | Deep read via `fetch_url` → RLM chunking. If fetch fails or returns paywall, mark "not deep-read — inaccessible." |
-| Source is codebase (file) | Lightweight deep read: read the file directly (no RLM needed for code < 50KB). |
+| Source is codebase — local file | Lightweight deep read: read the file directly (no RLM needed for code < 50KB). |
+| Source is codebase — opensource (remote repo) | T5 source code reading: clone to `./oss/{org}_{repo}/`, grep for RQ patterns, read matching files (see T5 procedure below). |
 
 ---
 
@@ -47,6 +48,7 @@ before dispatch and selects the tier:
 | **T2 — Medium** | 5–50KB | `read_file` paginated (2-3 reads) | N/A | N/A |
 | **T3 — Long** | 50–200KB | `rlm_open` → `chunk()` → `sub_query_batch` | 8K chars | 1K chars |
 | **T4 — Book** | > 200KB | `rlm_open` → `chunk()` with selective reading: first process ToC/abstract/intro/conclusion, then deep-read only sections relevant to RQ | 8K chars | 1K chars |
+| **T5 — Source code** | Any size | `grep_files` for RQ-relevant patterns → `read_file` of matching files. No RLM needed for code. For repositories: clone to `{oss_clone_dir}/{org}_{repo}/` first (default `oss/`), then search. Record commit hash for reproducibility. | N/A | N/A |
 
 **T4 selective reading procedure:**
 1. Chunk the table of contents (first 10% of document) → identify relevant sections.
@@ -54,6 +56,31 @@ before dispatch and selects the tier:
 3. For each relevant section identified in step 1, chunk and deep-read.
 4. Skip clearly irrelevant sections (e.g., appendix A of a textbook when RQ is about algorithm X).
 5. Record which sections were skipped and why in the deep read output.
+
+**T5 source code reading procedure:**
+1. **Clone (if remote):** If the source is a remote repository URL, clone it to `{oss_clone_dir}/{org}_{repo}/` (default `oss/`):
+   ```
+   exec_shell(command: "git clone --depth 1 --single-branch {repo_url} {oss_clone_dir}/{org}_{repo}/")
+   ```
+   If already cloned, `git pull` to update.
+   **Record commit hash:** After clone/pull, run `exec_shell("cd {oss_clone_dir}/{org}_{repo} && git rev-parse HEAD")` and record the commit hash in the deep read output under `**Commit analyzed:** {hash}`. This ensures claims reference a specific, reproducible version of the code.
+2. **Structure survey:** Read top-level files (README.md, Cargo.toml/pyproject.toml/package.json, directory listing).
+3. **Targeted grep:** `grep_files` with RQ-derived patterns (function names, algorithm names, constant values, benchmark results). Search across the cloned directory.
+4. **Key file reading:** `read_file` the files containing matches. Focus on:
+   - Core algorithm implementations
+   - Benchmark harnesses and results
+   - Test files that validate correctness
+   - Configuration files with numerical constants
+   - Documentation strings and comments that explain design decisions
+5. **Claim extraction:** For each relevant code section, extract claims with **E-grade (Empirical — implementation)**:
+   - What does the code actually do? (not what it claims to do)
+   - What numerical values are hardcoded or computed?
+   - What algorithm variant is implemented?
+   - What are the benchmark results?
+6. **Consistency check (code-specific):**
+   - Does the implementation match the documented algorithm?
+   - Are tests passing? (check CI badge or run `cargo test`/`pytest`/`npm test`)
+   - Are benchmark claims reproducible from the benchmark code?
 
 ---
 
@@ -68,9 +95,14 @@ basis within the source:
 | **P — Paraphrase with context** | Claim restated in own words, with surrounding context cited | "The authors argue that co-kriging fails above 5 fidelity levels, citing instability in the covariance matrix (p. 12, §4.1)" | MODERATE — faithful to source but interpretation involved |
 | **I — Inference** | Claim derived from source data/figures/tables but not explicitly stated | "Figure 3 shows error increases with dimensionality; we infer the method is unsuitable for d > 20 (p. 8, Fig. 3)" | WEAK — requires cross-validation with other sources |
 | **M — Mathematical** | Claim that includes a mathematical statement (theorem, equation, proof) | "Theorem 3.1: convergence rate is O(1/√n) under assumptions A1-A4 (p. 15)" | Flagged for human review — LLM cannot verify proofs |
+| **E — Empirical (implementation)** | Evidence from real executable code: implementation, benchmark, test result, hardcoded constant | "`fn co_kriging_predict()` implements Le Gratiet (2013) with Cholesky covariance optimization (src/kriging.rs:142-189); benchmark shows 2.3ms latency for 1000 points" | STRONG if repository RoB Low AND cross-source corroborated (V-grade from paper or second independent repository); MODERATE otherwise |
 
 **Rule for synthesis:** STRONG findings must be supported by at least one V-grade
-claim. MODERATE findings require V or P. WEAK findings accept I-grade.
+claim (textual sources), or one E-grade claim with RoB Low AND cross-source corroboration
+(a V-grade from a paper, or a second independent E-grade from another repository).
+MODERATE findings require V, P, or E (with RoB Some concerns or without corroboration).
+WEAK findings accept I-grade.
+E-grade claims without cross-source corroboration are capped at MODERATE, regardless of RoB.
 
 **Mathematical claims (M-grade):** These are automatically flagged with
 `⚠ MATHEMATICAL — requires human verification`. The orchestrator must NOT

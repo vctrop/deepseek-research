@@ -34,6 +34,7 @@ Evaluate each claim extracted in Stage 4 with this 2×2 matrix:
 | **Empirical evidence** (measurements, experiments, benchmarks) | **STRONG** — converges with scientific consensus | **MODERATE** — requires independent replication to upgrade |
 | **Theoretical evidence** (proofs, derivations, formal analysis) | **STRONG** — verified by peer math review | **MODERATE** — verifiable by reader; flag if proof is incomplete |
 | **Assertion without evidence** (opinion, "known fact", citation without data) | **WEAK** — expert opinion, not evidence | **WEAK** — single-source claim, requires cross-reference |
+| **Código open-source** (implementação real, benchmarks, testes, constantes extraídas) | **STRONG** — código auditável, reprodutível, E corroborado por V-grade de paper ou segundo repositório independente | **MODERATE** — carece de peer review formal; requer verificação independente; E-grade sem corroboração cross-source |
 
 **Usage:** In Stage 4 synthesis, each K-finding must cite its evidence strength
 independently from source credibility:
@@ -229,6 +230,7 @@ constrains its maximum evidence strength in synthesis:
 | **P — Paraphrase with context** | MODERATE | Restated claim with surrounding context cited |
 | **I — Inference** | WEAK | Derived from data/figures/tables; requires cross-validation |
 | **M — Mathematical** | LOW (capped) | Theorem/proof/equation flagged for human verification |
+| **E — Empirical (implementation)** | STRONG (if RoB Low AND cross-source corroborated) / MODERATE (otherwise) | Verbatim code excerpt with file:line reference; repository must pass RoB assessment; STRONG requires corroboration from a V-grade paper claim or a second independent E-grade repository (see `references/risk-of-bias.md` §D6 Algorithmic Fidelity) |
 
 ### Human Verifiability
 
