@@ -233,6 +233,8 @@ def build_subagent_prompt(
            local_sources_block (optional), local_sources_json (optional)}
       - dsr-web: kwargs = {rq_text, main_topic}
       - dsr-code: kwargs = {rq_text}
+      - dsr-opensource: kwargs = {rq_text, main_topic (optional)}
+      - dsr-deep-read-t5: kwargs = {source_id, repo_url, rq_text, skill_dir, oss_clone_dir}
       - dsr-da: kwargs = {session_dir, skill_dir}
       - dsr-grey: kwargs = {rq_text, main_topic}
       - dsr-tiebreak: kwargs = {rq_text, bibliography_path, disagreement_list}
@@ -242,6 +244,8 @@ def build_subagent_prompt(
         "dsr-bibliography": _build_bibliography_prompt,
         "dsr-web": _build_web_prompt,
         "dsr-code": _build_code_prompt,
+        "dsr-opensource": _build_opensource_prompt,
+        "dsr-deep-read-t5": _build_deep_read_t5_prompt,
         "dsr-da": _build_da_prompt,
         "dsr-grey": _build_grey_prompt,
         "dsr-tiebreak": _build_tiebreak_prompt,
@@ -342,6 +346,117 @@ def _build_code_prompt(rq_text: str) -> str:
 
 ## Output REQUIRED format
 | Source ID | File:Line | Type (impl/doc/test/config) | Relevance (1-5) | Why relevant |"""
+
+
+def _build_opensource_prompt(rq_text: str, main_topic: str = "") -> str:
+    topic = main_topic or rq_text
+    return f"""Search open-source repositories for implementations, benchmarks,
+libraries, and tools relevant to: {rq_text}
+
+Main topic for search queries: {topic}
+
+## Search Strategy
+
+Search across these targets in order:
+1. GitHub code search: site:github.com
+2. GitLab explore: site:gitlab.com
+3. Package registries: crates.io, PyPI, npm
+4. Papers with Code: site:paperswithcode.com
+5. Fallback (if < 5 results from above): SourceForge (site:sourceforge.net), Codeberg (site:codeberg.org)
+
+## Mandatory Queries
+
+Execute ALL of these searches:
+- "{topic} implementation github"
+- "{topic} benchmark"
+- "{topic} open source"
+- "{topic} library" (append programming language if mentioned in RQ)
+
+## Negative Search (MANDATORY)
+
+Execute ALL of these contrary-evidence searches:
+- "{topic} abandoned"
+- "{topic} unmaintained"
+- "{topic} deprecated"
+
+Report what you found — "No results" is valid.
+
+## Output REQUIRED format
+
+| Source ID | Repository URL | Type (impl/benchmark/lib/tool) | Relevance (1-5) | Why relevant | Stars | Last commit |
+|-----------|---------------|-------------------------------|-----------------|--------------|-------|-------------|
+
+**Relevance scale:**
+- 5 — Directly implements the algorithm/method described in RQ
+- 4 — Related implementation or benchmark suite for the domain
+- 3 — Library in same domain, potentially useful
+- 2 — Tangentially related tool or utility
+- 1 — Mentioned but not directly applicable
+
+**Stars and Last commit:** Extract from GitHub/GitLab metadata when available. Write "N/A" for package registries.
+
+## Negative Search Results
+
+| Topic | Query | Results found | Key findings |
+|-------|-------|--------------|--------------|
+| {topic} | "abandoned {topic}" | (N) | (summary or "No abandoned projects found") |
+| {topic} | "unmaintained {topic}" | (N) | (summary or "No unmaintained projects found") |
+
+## Saturation
+
+Report whether saturation was reached:
+- **Criterion met:** (yes — last N sources added no new repositories / no — below saturation_window)
+- **Sources capped:** (yes — reached max_sources_per_axis / no)"""
+
+
+def _build_deep_read_t5_prompt(
+    source_id: str,
+    repo_url: str,
+    rq_text: str,
+    skill_dir: str,
+    oss_clone_dir: str = "oss",
+) -> str:
+    return f"""Deep-read the open-source repository at {repo_url} for claims relevant to: {rq_text}
+
+Source ID: {source_id}
+
+## Procedure
+
+1. **Clone the repository:**
+   - Run: `git clone --depth 1 --single-branch {repo_url} {oss_clone_dir}/{source_id}/`
+   - If the directory already exists, run: `cd {oss_clone_dir}/{source_id} && git pull`
+
+2. **Record commit hash:**
+   - Run: `cd {oss_clone_dir}/{source_id} && git rev-parse HEAD`
+   - Record the hash as `**Commit analyzed:** <hash>` in your output.
+
+3. **Structure survey:**
+   - Read README.md, package manifest (Cargo.toml/pyproject.toml/package.json), and top-level directory listing.
+
+4. **Targeted grep:**
+   - Extract keywords from the RQ: {rq_text}
+   - Use grep_files to search for these patterns across {oss_clone_dir}/{source_id}/
+   - Focus on function names, algorithm names, class names, constant values, benchmark results.
+
+5. **Key file reading:**
+   - read_file the files containing grep matches (limit to files directly relevant to RQ).
+   - Focus on: core algorithm implementations, benchmark harnesses, test files, configuration constants, docstrings with design decisions.
+
+6. **Claim extraction:**
+   - Extract claims with **E-grade (Empirical — implementation)**.
+   - Each claim must include: verbatim code excerpt, file:line reference, what the code actually does.
+   - E-grade STRONG requires: (a) repository RoB Low, AND (b) cross-source corroboration (V-grade from a paper or second independent E-grade repository). Without corroboration, cap at MODERATE.
+
+7. **Consistency check:**
+   - Does the implementation match the documented algorithm?
+   - Are there discrepancies between docstring claims and actual code?
+   - Check for internal contradictions.
+
+## Output
+
+Write to `{{session_dir}}/deep-reads/{source_id}.md` using the template at {skill_dir}/templates/source-deep-read.md.
+
+Use T5, codebase_grep, and include the commit hash in the metadata header."""
 
 
 def _build_da_prompt(session_dir: str, skill_dir: str) -> str:
