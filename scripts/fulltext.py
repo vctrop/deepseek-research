@@ -383,6 +383,78 @@ def resolve_fulltext(
     }
 
 
+# ── Batch resolver ──────────────────────────────────────────────────
+
+DOI_PATTERN = re.compile(r'\b(10\.\d{4,}/[^\s\]]+)')
+ARXIV_ID_PATTERN = re.compile(r'arXiv:(\d{4}\.\d{4,5}(?:v\d+)?)')
+
+
+def resolve_all_fulltext(
+    inventory_path: str,
+    output_dir: str,
+    unpaywall_email: str = "",
+    allow_scihub: bool = False,
+) -> str:
+    """Lê 02-source-inventory.md, extrai DOI e arXiv ID, resolve em batch.
+
+    Retorna JSON com mapping source_id → resultado e sumário.
+    """
+    try:
+        with open(inventory_path, "r", encoding="utf-8") as f:
+            inventory_text = f.read()
+    except (OSError, FileNotFoundError):
+        return json.dumps({"error": f"Inventory not found: {inventory_path}", "results": {}})
+
+    results = {}
+    summary = {"total": 0, "arxiv": 0, "oa": 0, "scihub": 0, "unavailable": 0}
+
+    # Extrair source_id + texto da linha da tabela
+    source_rows = re.findall(
+        r'\|\s*(S\d+|CODE-\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+)\s*\|\s*\d\s*\|',
+        inventory_text
+    )
+
+    for sid, title_or_path_raw, stype in source_rows:
+        # Pular fontes que não são papers
+        if "paper" not in stype.lower():
+            continue
+
+        row_text = title_or_path_raw
+        doi = None
+        arxiv_id = None
+
+        # Extrair DOI
+        doi_match = DOI_PATTERN.search(row_text)
+        if doi_match:
+            doi = doi_match.group(1).rstrip(".")
+
+        # Extrair arXiv ID
+        arxiv_match = ARXIV_ID_PATTERN.search(row_text)
+        if arxiv_match:
+            arxiv_id = arxiv_match.group(1)
+
+        if not doi and not arxiv_id:
+            continue  # sem DOI nem arXiv ID → não podemos resolver
+
+        summary["total"] += 1
+        result = resolve_fulltext(
+            doi=doi,
+            arxiv_id=arxiv_id,
+            source_id=sid.strip(),
+            output_dir=output_dir,
+            unpaywall_email=unpaywall_email,
+            allow_scihub=allow_scihub,
+        )
+        results[sid.strip()] = result
+
+        # Atualizar sumário
+        status = result.get("status", "unavailable")
+        if status in summary:
+            summary[status] = summary.get(status, 0) + 1
+
+    return json.dumps({"results": results, "summary": summary}, indent=2)
+
+
 # ── Smoke test ──────────────────────────────────────────────────────
 
 if __name__ == "__main__":

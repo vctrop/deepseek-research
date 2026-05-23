@@ -138,39 +138,41 @@ Para cada fonte com URL no `02-source-inventory.md`:
 5. **A categoria "ACCESSIBLE (inferred)" está abolida.** Toda fonte deve ser
    verificada ativamente ou marcada como UNVERIFIABLE.
 
-### 3.1 Full-Text PDF Acquisition
+### 3.1 Full-Text PDF Acquisition (Batch)
 
-Para fontes bibliográficas (papers), tentar obter o PDF completo via cadeia de
-fallback SPEC-003:
+Para fontes bibliográficas (papers), resolver PDFs em lote. **Uma única chamada**
+processa todas as fontes do inventory via `resolve_all_fulltext()`:
 
 ```
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
-from helpers import resolve_fulltext
 
 # O orquestrador interpola {allow_scihub} como True ou False.
-# Safe default False se placeholder não resolvido.
 _allow_scihub_raw = "{allow_scihub}"
 try:
     allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
 except (KeyError, AttributeError):
     allow_scihub = False
 
-result = resolve_fulltext(
-    doi="{doi}",            # se disponível
-    arxiv_id="{arxiv_id}",  # se disponível
-    source_id="{source_id}",
+from fulltext import resolve_all_fulltext
+result_json = resolve_all_fulltext(
+    inventory_path="{session_dir}/02-source-inventory.md",
     output_dir="{session_dir}/pdfs/",
     unpaywall_email="{unpaywall_email}",
     allow_scihub=allow_scihub,
 )
-print(json.dumps(result))
+result = json.loads(result_json)
+print(f"Total: {result['summary']['total']} | arxiv: {result['summary'].get('arxiv', 0)} | oa: {result['summary'].get('oa', 0)} | unavailable: {result['summary'].get('unavailable', 0)}")
+
+# Salvar mapping para Stage 4
+with open("{session_dir}/pdfs/mapping.json", "w") as f:
+    json.dump(result, f, indent=2)
 ''')
 ```
 
-Cadeia: arXiv PDF → Unpaywall API (requer `unpaywall_email` config) → Sci-Hub
-(requer `allow_scihub=true`). Se `pdf_path` retornado, usar `read_file` para
-extrair texto. Ver `references/pipeline-detail.md` §3.1 para detalhes.
+Cadeia por fonte: arXiv PDF → Unpaywall API (requer `unpaywall_email` config) →
+Sci-Hub (requer `allow_scihub=true`). O Stage 4 lê `pdfs/mapping.json` para saber
+quais PDFs estão disponíveis. Ver `references/pipeline-detail.md` §3.1.
 
 ### 3.2 Credibility + Risk of Bias
 
@@ -238,23 +240,79 @@ extrair texto. Ver `references/pipeline-detail.md` §3.1 para detalhes.
 
 ---
 
-## Close: Verification (5 gates)
+## Close: Verification (10 gates)
 
 **Output:** `MANIFEST.txt`
 
-| Gate | Descrição |
-|------|-----------|
-| GATE-1 | File integrity — outputs esperados existem e não estão vazios |
-| GATE-2 | IRON RULE C — sem claims nus em report/synthesis |
-| GATE-3 | Textual evidence — STRONG claims têm V-grade ou E-grade corroborado |
-| GATE-4 | RoB completeness — toda fonte tem rating |
-| GATE-5 | Placeholder resolution — sem `{placeholder}` não resolvido |
+| Gate | Tipo | Descrição |
+|------|------|-----------|
+| GATE-1 | Manual | File integrity — outputs esperados existem e não estão vazios |
+| GATE-2 | **Automático** | IRON RULE C — `check_iron_rule_c_deterministic()` com filtros de contexto |
+| GATE-3 | Manual | Textual evidence — STRONG claims têm V-grade ou E-grade corroborado |
+| GATE-4 | Manual | RoB completeness — toda fonte tem rating |
+| GATE-5 | Manual | Placeholder resolution — sem `{placeholder}` não resolvido |
+| GATE-6 | **Automático** | Verification Completeness — `verify_completeness.py` |
+| GATE-7 | **Automático** | Evidence Grade Sanity — `verify_evidence_grades.py` |
+| GATE-8 | **Automático** | Source Ref Cross-Check — `verify_source_refs.py` |
+| GATE-9 | Manual | Coverage-Grade Consistency — `check_coverage_grade_consistency()` |
+| GATE-10 | Manual | Batch PDF Acquisition — `resolve_all_fulltext()` executado no Stage 3 |
 
-**GATE-2 exec:**
+### Gates Automáticos (code_execution)
+
+**GATE-2 (Iron Rule C determinístico):**
 ```
-grep_files(pattern="\\b(validated|proved|confirmed|demonstrated|ensures|guarantees|always|never|optimal|definitive|conclusive|certainly|undoubtedly|obviously|clearly)\\b", path="{session_dir}/")
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import check_iron_rule_c_deterministic
+print(check_iron_rule_c_deterministic(
+    "{session_dir}/05-report.md",
+    "{session_dir}/04-synthesis.md"
+))
+''')
 ```
-Para cada match, verificar qualificação (source + method + conditions).
+
+**GATE-6 (Verification Completeness):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_completeness import check
+print(check("{session_dir}/02-source-inventory.md", "{session_dir}/03-source-verification.md"))
+''')
+```
+
+**GATE-7 (Evidence Grade Sanity):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_evidence_grades import check
+print(check("{session_dir}/deep-reads/"))
+''')
+```
+
+**GATE-8 (Source Ref Cross-Check):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_source_refs import check
+print(check(
+    "{session_dir}/02-source-inventory.md",
+    "{session_dir}/04-synthesis.md",
+    "{session_dir}/05-report.md"
+))
+''')
+```
+
+**GATE-9 (Coverage-Grade Consistency):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import check_coverage_grade_consistency
+print(check_coverage_grade_consistency(
+    "{session_dir}/deep-reads/",
+    "{session_dir}/04-synthesis.md"
+))
+''')
+```
 
 ---
 

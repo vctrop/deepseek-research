@@ -142,6 +142,166 @@ def compute_saturation(deep_reads_dir: str, rq_text: str, last_n: int = 2) -> bo
     return new_claims == 0
 
 
+def check_coverage_grade_consistency(deep_reads_dir: str, synthesis_path: str) -> str:
+    """GATE-5x: verifica se findings STRONG no 04-synthesis citam fontes
+    com coverage suficiente.
+
+    Returns:
+        JSON string com {"pass": bool, "violations": [...]}
+    """
+    import json as _json
+    import re as _re
+    from pathlib import Path as _Path
+
+    dir_path = _Path(deep_reads_dir)
+    violations = []
+
+    # 1. Extrair coverage de cada deep read
+    coverage_map: dict[str, float | None] = {}
+    if dir_path.exists():
+        for fpath in sorted(dir_path.glob("*.md")):
+            if fpath.name.startswith("_"):
+                continue
+            try:
+                text = fpath.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            sid = fpath.stem
+            cov_match = _re.search(r'\*\*Coverage:\*\*\s*([\d.]+)%', text)
+            if cov_match:
+                try:
+                    coverage_map[sid] = float(cov_match.group(1))
+                except ValueError:
+                    coverage_map[sid] = None
+            else:
+                coverage_map[sid] = None
+
+    # 2. Extrair findings STRONG do synthesis
+    try:
+        synth_text = _Path(synthesis_path).read_text(encoding="utf-8")
+    except Exception:
+        return _json.dumps({"pass": True, "note": "synthesis file not found", "violations": []})
+
+    # Procurar blocos de finding STRONG e os source_ids citados neles
+    # Estratégia: encontrar "STRONG" e depois extrair S\d+ ou CODE-\d+ no parágrafo
+    strong_blocks = _re.split(r'\n(?=###|\*\*STRONG)', synth_text)
+    for block in strong_blocks:
+        if "STRONG" not in block.upper():
+            continue
+        cited_ids = set(_re.findall(r'\b(S\d+|CODE-\d+)\b', block))
+        for cid in cited_ids:
+            cov = coverage_map.get(cid)
+            if cov is None:
+                violations.append(
+                    f"STRONG finding cites source '{cid}' with unknown coverage "
+                    f"(not in deep-reads or coverage not reported)"
+                )
+            elif cov < 50:
+                violations.append(
+                    f"STRONG finding cites source '{cid}' with only {cov:.0f}% coverage"
+                )
+
+    result = {
+        "pass": len(violations) == 0,
+        "gate": "GATE-5x",
+        "description": "Coverage-Grade Consistency Check",
+        "violations": violations,
+    }
+    return _json.dumps(result, indent=2)
+
+
+def check_iron_rule_c_deterministic(report_path: str, synthesis_path: str) -> str:
+    """GATE-2 determinístico: Iron Rule C com filtro de contexto.
+
+    Substitui o grep cego por análise com 4 filtros de exclusão:
+      1. Verbatim quote entre aspas com atribuição
+      2. Negação ("not validated", "failed to confirm")
+      3. Atribuição externa ("Smith et al. confirmed")
+      4. Meta-linguagem ("this finding was confirmed")
+
+    Returns:
+        JSON string com {"pass": bool, "violations": [...]}
+    """
+    import json as _json
+    import re as _re
+    from pathlib import Path as _Path
+
+    BARE_CLAIM_WORDS = [
+        "validated", "proved", "confirmed", "demonstrated",
+        "ensures", "guarantees", "always", "never",
+        "optimal", "definitive", "conclusive",
+        "certainly", "undoubtedly", "obviously", "clearly",
+    ]
+
+    violations = []
+    files_to_check = []
+
+    for fpath_str in [report_path, synthesis_path]:
+        p = _Path(fpath_str)
+        if p.exists():
+            files_to_check.append(p)
+
+    for fpath in files_to_check:
+        try:
+            text = fpath.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            line_lower = line.lower()
+            for word in BARE_CLAIM_WORDS:
+                if word not in line_lower:
+                    continue
+
+                # Verificar padrões de exclusão
+                window_start = max(0, line_lower.find(word) - 60)
+                window_end = min(len(line_lower), line_lower.find(word) + len(word) + 60)
+                context = line_lower[window_start:window_end]
+
+                excluded = False
+
+                # 1. Verbatim quote entre aspas com atribuição
+                if _re.search(r'"[^"]*\b' + word + r'\b[^"]*"\s*(?:\(|\[|—)', context):
+                    excluded = True
+
+                # 2. Negação
+                if _re.search(
+                    r'\b(?:not|never|failed\s+to|does\s+not|do\s+not)\s+\w*\s*\b' + word + r'\b',
+                    context
+                ):
+                    excluded = True
+
+                # 3. Atribuição externa
+                if _re.search(
+                    r'\b(?:et\s+al\.?|authors?|researchers?|study|paper|work)\b',
+                    context
+                ):
+                    excluded = True
+
+                # 4. Meta-linguagem
+                if _re.search(
+                    r'\b(?:this|these|our|the)\s+\w+\s+(?:was|were|is|are|has|have)\s+\b' + word + r'\b',
+                    context
+                ):
+                    excluded = True
+
+                if not excluded:
+                    violations.append({
+                        "file": str(fpath.name),
+                        "line": lineno,
+                        "word": word,
+                        "context": line.strip()[:120],
+                    })
+
+    result = {
+        "pass": len(violations) == 0,
+        "gate": "GATE-2",
+        "description": "Iron Rule C (deterministic with context filters)",
+        "violations": violations,
+    }
+    return _json.dumps(result, indent=2)
+
+
 def build_subagent_prompt(
     template_name: str,  # "dsr-bibliography" | "dsr-code"
     **kwargs: str,

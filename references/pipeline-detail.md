@@ -155,65 +155,66 @@ ser verificada (ex: busca web rate-limited), ela é UNVERIFIABLE, não "inferred
 accessible". O orquestrador NÃO DEVE inferir acessibilidade com base em
 confiança no repositório (ex: "arxiv é confiável").
 
-### 3.1 Full-Text PDF Acquisition (SPEC-003)
+### 3.1 Full-Text PDF Acquisition — Batch (SPEC-003)
 
-Para fontes com DOI ou arXiv ID, executar cadeia de fallback:
+**Uma única chamada** processa todas as fontes paper do inventory.
+DOI e arXiv ID são extraídos automaticamente via regex do texto das linhas.
 
 ```
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
-from helpers import resolve_fulltext
 
-# O orquestrador DEVE interpolar {allow_scihub} como True ou False.
-# Se não interpolado, usar False como safe default.
 _allow_scihub_raw = "{allow_scihub}"
 try:
     allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
 except (KeyError, AttributeError):
-    allow_scihub = False  # placeholder não resolvido → safe default
+    allow_scihub = False
 
-result = resolve_fulltext(
-    doi="{doi}",
-    arxiv_id="{arxiv_id}",
-    source_id="{source_id}",
+from fulltext import resolve_all_fulltext
+result_json = resolve_all_fulltext(
+    inventory_path="{session_dir}/02-source-inventory.md",
     output_dir="{session_dir}/pdfs/",
     unpaywall_email="{unpaywall_email}",
     allow_scihub=allow_scihub,
 )
-print(json.dumps(result))
+result = json.loads(result_json)
+print(f"Total: {result['summary']['total']} | "
+      f"arxiv: {result['summary'].get('arxiv', 0)} | "
+      f"oa: {result['summary'].get('oa', 0)} | "
+      f"unavailable: {result['summary'].get('unavailable', 0)}")
+
+# Salvar mapping para Stage 4
+with open("{session_dir}/pdfs/mapping.json", "w") as f:
+    json.dump(result, f, indent=2)
 ''')
 ```
 
-**Cadeia de fallback:**
+**Extração automática:** `resolve_all_fulltext()` usa regex para encontrar
+DOI (`10.XXXX/...`) e arXiv ID (`arXiv:YYMM.NNNNN`) no texto de cada linha
+do inventory. Fontes com type != "paper" são puladas.
+
+**Cadeia de fallback por fonte:**
 1. **arXiv PDF:** `GET https://arxiv.org/pdf/{id}.pdf` → salvar → `read_file`
 2. **Unpaywall API:** `GET https://api.unpaywall.org/v2/{doi}?email={email}`
    → extrair `best_oa_location.url_for_pdf` → baixar PDF
 3. **Sci-Hub (opt-in):** `GET https://sci-hub.{domain}/{doi}` → extrair URL
-   do PDF do HTML → baixar PDF
 
 **Config necessária:**
 ```toml
 # .deepseek/deepseek-research.toml
 unpaywall_email = "researcher@example.com"  # requerido para Unpaywall
-allow_scihub = false                         # default: off (legal gray area)
+allow_scihub = false                         # default: off
 scihub_domain = ""                           # auto-detect if empty
 ```
 
-**Tratamento de bordas:**
-- 403/Cloudflare → `UNVERIFIABLE (bot protection)`
-- PDF > 50MB → skip, marcar `TOO_LARGE`
-- PDF scaneado → `read_file` retorna vazio → `FAILED — scanned PDF`
-- Captcha Sci-Hub → tentar próximo domínio; se todos falharem → `UNVERIFIABLE`
+**Tratamento de bordas:** 403/Cloudflare → UNVERIFIABLE; PDF > 50MB → skip;
+PDF scaneado → FAILED; Captcha Sci-Hub → próximo domínio → UNVERIFIABLE.
 
-**Resultado:**
-- `pdf_path` → usar `read_file(pdf_path)` no Stage 4 para extrair texto
-- `pdf_url` → registrar no source-verification para referência
-- `status: "unavailable"` → marcar fonte como `UNVERIFIABLE` para full-text
-  (abstract pode ainda ser acessível)
+**Resultado:** `pdfs/mapping.json` mapeia source_id → {pdf_path, status, method}.
+O Stage 4 lê este arquivo para decidir entre `read_file(pdf_path)` e fallback.
 
-**Evasão de detecção (bot):** `fulltext.py` usa headers de browser realista
-(Chrome 132 Linux), delay aleatório de 1.5-4.0s entre requests, e mantém
-timeout de 30s. Ver `scripts/fulltext.py` §Evasão de detecção.
+**Evasão de detecção (bot):** `fulltext.py` usa headers Chrome 132 Linux,
+delay 1.5-4.0s entre requests, timeout 30s.
 
 ### 3.2 Credibility + Risk of Bias
 
