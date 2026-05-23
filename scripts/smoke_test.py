@@ -67,6 +67,7 @@ def test_file_integrity():
         "rq-brief", "source-inventory", "source-verification", "synthesis",
         "devils-advocate", "report", "local-corpus-triage", "plain-summary",
         "decision-brief", "stakeholder-review", "source-deep-read",
+        "opensource-decision",
     ]
     expected_root = ["SKILL.md", "README.md", "LICENSE.txt"]
 
@@ -189,9 +190,9 @@ def test_skill_consistency():
 
     # Count checklist ids
     updates = [int(x) for x in re.findall(r"checklist_update\(\s*id\s*=\s*(\d+)", pd_text)]
-    expected_ids = set(range(1, 14))
+    expected_ids = set(range(1, 16))
     actual_ids = set(updates)
-    check("checklist ids 1-13 all covered", actual_ids == expected_ids,
+    check("checklist ids 1-15 all covered", actual_ids == expected_ids,
           f"missing: {sorted(expected_ids - actual_ids)}, extra: {sorted(actual_ids - expected_ids)}")
 
     # Line count within budget
