@@ -18,7 +18,15 @@
 | A4: Publication Bias | ✅ | Stage 3 step 9a (diversity, distribution, funnel), GATE-23 |
 | A5: Grey Literature | ✅ | `dsr-grey` prompt, pipeline dispatch, Stage 2 step 8 |
 
-### SPEC-001 Tier 3 (Aspirational) — NOT STARTED
+### SPEC-001 Tier 3 (Living & Dissemination) — IMPLEMENTED 2026-05-23
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| C1: Living Systematic Review | ✅ | `living_review.py` (240L), Stage 1 trigger, `build_surveillance_queries()` |
+| C2: Multiple Output Formats | ✅ | Stage 5: report, plain-summary, decision-brief, data-supplement |
+| C3: Stakeholder Review Panel | ✅ | Stage 4.6, `stakeholder_review` config, `request_user_input` |
+
+### ALL SPEC-001 TIERS COMPLETE 🎉
 
 | Phase | Items | Status |
 |-------|-------|--------|

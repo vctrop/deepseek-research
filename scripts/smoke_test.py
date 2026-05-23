@@ -61,7 +61,7 @@ def test_file_integrity():
     ]
     expected_scripts = [
         "helpers", "index_sources", "meta_analysis",
-        "protocol_registry", "living_review",
+        "protocol_registry", "living_review", "grade",
     ]
     expected_templates = [
         "rq-brief", "source-inventory", "source-verification", "synthesis",
@@ -147,10 +147,21 @@ def test_scripts():
 
     # living_review.py
     try:
-        from living_review import needs_update, load_session, merge_update, get_latest_update
+        from living_review import check_update_needed, build_surveillance_queries, record_surveillance
         check("living_review.py import", True)
     except Exception as e:
         check("living_review.py import", False, str(e))
+
+    # grade.py — self-test
+    try:
+        result = subprocess.run(
+            ["python3", str(SKILL_DIR / "scripts" / "grade.py"), "--self-test"],
+            capture_output=True, text=True, timeout=30,
+        )
+        check("grade.py self-test exit 0", result.returncode == 0,
+              f"exit={result.returncode}, stderr={result.stderr[:200]}")
+    except Exception as e:
+        check("grade.py self-test", False, str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════

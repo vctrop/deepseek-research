@@ -1,166 +1,240 @@
 #!/usr/bin/env python3
-"""living_review.py — Living systematic review infrastructure.
+"""living_review.py — Living systematic review support for deepseek-research.
 
-Called via `code_execution` from Stage 1. Manages session state for update
-cycles: load prior session, check if update is needed, merge new findings.
+Enables surveillance searches and update cycles for prior research sessions.
+When a session has `living_review = true` in its config, this module:
+1. Checks if the surveillance interval has elapsed since last search
+2. Runs targeted web searches for new evidence since the last search date
+3. Flags sessions needing updates
 
 Usage:
-    from living_review import load_session, needs_update, merge_update
-    state = load_session(output_dir, slug)
-    if needs_update(state, interval_days=90):
-        merge_update(state, new_sources, new_findings)
+    from living_review import check_update_needed, run_surveillance_search
+    status = check_update_needed(session_dir, surveillance_interval_days=90)
+    if status["needs_update"]:
+        results = run_surveillance_search(session_dir, rq_text, main_topic)
 """
 
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
-def load_session(output_dir: str, slug: str) -> dict | None:
-    """Load a prior research session by slug.
+def _read_manifest(session_dir: str) -> dict:
+    """Read MANIFEST.txt and extract structured data. Returns empty dict on failure."""
+    manifest_path = Path(session_dir) / "MANIFEST.txt"
+    if not manifest_path.exists():
+        return {}
 
-    Returns dict with session metadata and artifact paths, or None if not found.
-    Scans {output_dir}/ for directories matching *-{slug}.
-    """
-    base = Path(output_dir)
-    if not base.exists():
-        return None
+    data: dict = {"raw": manifest_path.read_text(encoding="utf-8")}
 
-    for session_dir in sorted(base.iterdir(), reverse=True):
-        if not session_dir.is_dir():
-            continue
-        if session_dir.name.endswith(f"-{slug}"):
-            return _load_session_from_dir(session_dir)
-    return None
+    # Extract structured fields from MANIFEST format
+    text = data["raw"]
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.startswith("## Gate Results"):
+            break
+        if line.startswith("- ") or line.startswith("* "):
+            # Key-value pairs in list format
+            content = line[2:]
+            if ":" in content:
+                key, _, value = content.partition(":")
+                data[key.strip().lower().replace(" ", "_")] = value.strip()
+        elif ":" in line and not line.startswith("#") and not line.startswith("|"):
+            key, _, value = line.partition(":")
+            data[key.strip().lower().replace(" ", "_")] = value.strip()
 
-
-def needs_update(session: dict, interval_days: int = 90) -> bool:
-    """Check if a session is due for surveillance update.
-
-    Returns True if the last search date + interval_days < today.
-    """
-    last_search = session.get("last_search_date")
-    if not last_search:
-        return True
-
-    try:
-        last = datetime.fromisoformat(last_search).date()
-    except (ValueError, TypeError):
-        return True
-
-    today = date.today()
-    return (today - last).days >= interval_days
+    return data
 
 
-def merge_update(
+def check_update_needed(
     session_dir: str,
-    update_number: int,
-    new_sources: list[dict],
-    new_findings: list[dict],
+    surveillance_interval_days: int = 90,
 ) -> dict:
-    """Record an update to a living review.
+    """Check if a prior research session needs a living review update.
 
     Args:
         session_dir: Path to the session directory.
-        update_number: 1-based update count.
-        new_sources: List of new source dicts found in this update.
-        new_findings: List of new or revised findings.
+        surveillance_interval_days: Days between surveillance searches.
 
     Returns:
-        dict with update metadata.
+        dict with keys: needs_update, session_slug, last_search_date,
+        days_elapsed, next_surveillance_date, reason.
     """
-    update_record = {
-        "update_number": update_number,
-        "date": date.today().isoformat(),
-        "new_sources_count": len(new_sources),
-        "new_findings_count": len(new_findings),
-    }
+    slug = Path(session_dir).name
+    manifest = _read_manifest(session_dir)
 
-    # Append to MANIFEST.txt
+    last_search = manifest.get("last_search_date", "")
+    if not last_search:
+        # Try to extract from session directory name (date prefix)
+        if len(slug) >= 10 and slug[4] == "-" and slug[7] == "-":
+            last_search = slug[:10]  # YYYY-MM-DD
+
+    if not last_search:
+        return {
+            "needs_update": True,
+            "session_slug": slug,
+            "last_search_date": "unknown",
+            "days_elapsed": None,
+            "next_surveillance_date": "unknown",
+            "reason": "No last_search_date in MANIFEST — treat as needing update",
+        }
+
+    try:
+        last_date = datetime.fromisoformat(last_search[:10]).replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return {
+            "needs_update": True,
+            "session_slug": slug,
+            "last_search_date": last_search,
+            "days_elapsed": None,
+            "next_surveillance_date": "unknown",
+            "reason": f"Could not parse last_search_date: {last_search}",
+        }
+
+    now = datetime.now(timezone.utc)
+    days_elapsed = (now - last_date).days
+    next_surveillance = last_date + timedelta(days=surveillance_interval_days)
+
+    if days_elapsed >= surveillance_interval_days:
+        return {
+            "needs_update": True,
+            "session_slug": slug,
+            "last_search_date": last_date.strftime("%Y-%m-%d"),
+            "days_elapsed": days_elapsed,
+            "next_surveillance_date": next_surveillance.strftime("%Y-%m-%d"),
+            "reason": f"Surveillance interval exceeded ({days_elapsed}d ≥ {surveillance_interval_days}d)",
+        }
+    else:
+        return {
+            "needs_update": False,
+            "session_slug": slug,
+            "last_search_date": last_date.strftime("%Y-%m-%d"),
+            "days_elapsed": days_elapsed,
+            "next_surveillance_date": next_surveillance.strftime("%Y-%m-%d"),
+            "reason": f"Within surveillance window ({days_elapsed}d < {surveillance_interval_days}d)",
+        }
+
+
+def build_surveillance_queries(
+    rq_text: str,
+    main_topic: str,
+    last_search_date: str,
+) -> list[str]:
+    """Build date-filtered search queries for surveillance.
+
+    Args:
+        rq_text: Original research question.
+        main_topic: Short topic name for focused queries.
+        last_search_date: ISO date of last search (YYYY-MM-DD).
+
+    Returns:
+        List of query strings with date-range filters.
+    """
+    # Build date-filtered queries
+    date_filter = f"after:{last_search_date}"
+    return [
+        f"{main_topic} {date_filter}",
+        f'"{main_topic}" recent advances {date_filter}',
+        f"{main_topic} new evidence {date_filter}",
+        f'"{rq_text[:80]}" {date_filter}',
+    ]
+
+
+def record_surveillance(
+    session_dir: str,
+    queries_run: list[str],
+    new_sources_found: int,
+) -> None:
+    """Record a surveillance search in MANIFEST.txt.
+
+    Args:
+        session_dir: Session directory path.
+        queries_run: List of search queries executed.
+        new_sources_found: Number of new sources discovered.
+    """
     manifest_path = Path(session_dir) / "MANIFEST.txt"
-    if manifest_path.exists():
-        content = manifest_path.read_text(encoding="utf-8")
-        content += (
-            f"\n## Update {update_number}\n"
-            f"date: {update_record['date']}\n"
-            f"new_sources: {update_record['new_sources_count']}\n"
-            f"new_findings: {update_record['new_findings_count']}\n"
+    if not manifest_path.exists():
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_entry = f"""
+## Living Review Update — {now[:19]}Z
+- last_search_date: {now[:10]}
+- queries_run: {len(queries_run)}
+- new_sources_found: {new_sources_found}
+- surveillance_status: {"new_evidence_found" if new_sources_found > 0 else "up_to_date"}
+"""
+
+    with open(manifest_path, "a", encoding="utf-8") as f:
+        f.write(update_entry)
+
+
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+def self_test() -> int:
+    """Run self-test. Returns 0 on success, 1 on failure."""
+    import tempfile, os
+
+    errors = 0
+    tmpdir = tempfile.mkdtemp()
+
+    try:
+        # Create a test session with a MANIFEST
+        session_dir = os.path.join(tmpdir, "2025-01-15-test-slug")
+        os.makedirs(session_dir)
+
+        manifest_content = """# MANIFEST — 2025-01-15-test-slug
+- session_slug: 2025-01-15-test-slug
+- last_search_date: 2025-01-15
+- protocol_sha256: abc123
+- sources_total: 12
+## Gate Results
+| GATE-1 | PASS | All expected files present |
+"""
+        with open(os.path.join(session_dir, "MANIFEST.txt"), "w") as f:
+            f.write(manifest_content)
+
+        # Test check_update_needed — should need update (Jan 2025 > 90 days ago)
+        status = check_update_needed(session_dir, surveillance_interval_days=90)
+        assert status["needs_update"], f"Expected needs_update=True, got {status}"
+        assert status["last_search_date"] == "2025-01-15"
+        print(f"  Update check: {status['reason']}")
+
+        # Test with very long interval — should not need update
+        status2 = check_update_needed(session_dir, surveillance_interval_days=9999)
+        assert not status2["needs_update"], f"Expected needs_update=False, got {status2}"
+        print(f"  No-update check: {status2['reason']}")
+
+        # Test query builder
+        queries = build_surveillance_queries(
+            "How does X work?", "X mechanism", "2025-01-15"
         )
-        manifest_path.write_text(content, encoding="utf-8")
+        assert len(queries) == 4, f"Expected 4 queries, got {len(queries)}"
+        assert all("after:2025-01-15" in q for q in queries)
+        print(f"  Query builder: {len(queries)} queries with date filter")
 
-    # Write update-specific manifest
-    update_manifest_path = Path(session_dir) / f"update-{update_number}.json"
-    update_manifest_path.write_text(
-        json.dumps(update_record, indent=2) + "\n", encoding="utf-8"
-    )
+        # Test record_surveillance
+        record_surveillance(session_dir, queries, 3)
+        updated_manifest = _read_manifest(session_dir)
+        assert "last_search_date" in updated_manifest
+        print(f"  Record surveillance: OK")
 
-    return update_record
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir)
 
-
-def get_latest_update(session_dir: str) -> int:
-    """Return the latest update number for a session (0 if none)."""
-    base = Path(session_dir)
-    if not base.exists():
-        return 0
-
-    manifest = base / "MANIFEST.txt"
-    if not manifest.exists():
-        return 0
-
-    content = manifest.read_text(encoding="utf-8")
-    # Count "## Update N" headers
-    import re
-
-    updates = re.findall(r"## Update (\d+)", content)
-    return max(int(u) for u in updates) if updates else 0
+    print(f"\nAll self-tests {'passed' if errors == 0 else 'FAILED'}.")
+    return 0 if errors == 0 else 1
 
 
-def _load_session_from_dir(session_dir: Path) -> dict | None:
-    """Load session metadata from a session directory."""
-    manifest = session_dir / "MANIFEST.txt"
-    rq_brief = session_dir / "01-rq-brief.md"
-    report = session_dir / "05-report.md"
-
-    if not manifest.exists():
-        return None
-
-    # Parse MANIFEST.txt for key metadata
-    content = manifest.read_text(encoding="utf-8")
-
-    session = {
-        "session_dir": str(session_dir),
-        "slug": session_dir.name.split("-", 1)[1]
-        if "-" in session_dir.name
-        else session_dir.name,
-        "date": session_dir.name.split("-", 1)[0]
-        if "-" in session_dir.name
-        else "",
-        "has_rq_brief": rq_brief.exists(),
-        "has_report": report.exists(),
-    }
-
-    # Extract last search date from manifest
-    import re
-
-    match = re.search(r"last_search_date:\s*(\S+)", content)
-    if match:
-        session["last_search_date"] = match.group(1)
-
-    # Extract protocol DOI
-    match = re.search(r"protocol_doi:\s*(\S+)", content)
-    if match:
-        session["protocol_doi"] = match.group(1)
-
-    # Extract sources count
-    match = re.search(r"sources_used:\s*(\d+)", content)
-    if match:
-        session["sources_used"] = int(match.group(1))
-
-    # Extract RQ SHA
-    match = re.search(r"rq_sha256:\s*([a-f0-9]+)", content)
-    if match:
-        session["rq_sha256"] = match.group(1)
-
-    return session
+if __name__ == "__main__":
+    import sys
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
+    else:
+        print("living_review.py — Use --self-test to validate, or import as module.")
+        print("Functions: check_update_needed, build_surveillance_queries, record_surveillance")

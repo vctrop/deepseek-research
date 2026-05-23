@@ -1,6 +1,6 @@
 ---
 name: deepseek-research
-description: Multi-source research pipeline with adversarial review. RQ formulation → discovery → verification → deep reading → synthesis → Devil's Advocate → report. Triggered by "deep research X", "/deep-research Z", "investigate deeply Y", "foundational research W".
+description: Multi-source research pipeline with adversarial review. RQ formulation → discovery → verification → deep reading → synthesis → Devil's Advocate → report. Triggered by "deep research X", "/deep-research Z", "investigate deeply Y", "foundational research W". Living review: "update research {slug}".
 ---
 
 # deepseek-research

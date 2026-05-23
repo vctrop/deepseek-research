@@ -179,7 +179,14 @@ No manual intervention needed for normal execution.
 5. Use `request_user_input` to clarify: central question, domains spanned, decisions depending on this research.
 6. Generate slug from RQ: lowercase, hyphens, ≤ 50 chars. Example: "Estado da arte em co-kriging?" → `co-kriging-estado-da-arte`.
 7. Check prior sessions: `grep_files` in `$SESSION_INDEX` for slug/topic. If found, ask user to extend or start fresh.
-   - **Living review trigger:** If `living_review == true` and session exists, check update cadence via `living_review` module. If `needs_update == true`: enter "update mode." If `needs_update == false`: STOP.
+   - **Living review trigger:** If `living_review == true` and prior session found for this slug, check update cadence via `code_execution`:
+     ```python
+     import sys; sys.path.insert(0, '{SKILL_DIR}/scripts')
+     from living_review import check_update_needed, build_surveillance_queries
+     status = check_update_needed(session_dir, surveillance_interval_days={surveillance_interval_days})
+     ```
+     - If `status["needs_update"] == True`: enter "update mode" — re-run Stage 2 with date-filtered queries from `build_surveillance_queries()`. Append findings to existing report with "Update N" header. Do NOT re-screen previously screened sources.
+     - If `status["needs_update"] == False`: inform user session is up to date. STOP.
 8. **Classify knowledge type:** Per `references/epistemology.md` §Knowledge Type Taxonomy. Each sub-question gets a classification.
 9. **Operationalize concepts:** Per `references/epistemology.md` §Operationalization. Every RQ construct needs observable criteria.
 10. **Formulate analysis plan:** Fill the Analysis Plan section — synthesis method, effect size metric, inclusion/exclusion thresholds, saturation rule, sensitivity analyses. Narrative-only RQs mark quantitative entries as "N/A."
