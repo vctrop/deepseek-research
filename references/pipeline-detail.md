@@ -9,12 +9,70 @@ to keep the main skill body under 400 lines.
 
 ---
 
+## Multi-RQ Batch Mode
+
+When the user provides multiple research questions (e.g., "pesquise todas as áreas de ideias.md"),
+the orchestrator can run them sequentially in batch mode:
+
+1. **Extract RQ list:** Parse user input for multiple RQs, or read from a file.
+2. **For each RQ in the list:**
+   a. Run the full pipeline (Stages 1-5 + Close) independently.
+   b. Each RQ produces its own session directory: `{output_dir}/{date}-{slug(rq)}/`.
+   c. Between RQs: write a batch manifest `{output_dir}/_batch-manifest.json` recording progress.
+3. **On crash mid-batch:** Read `_batch-manifest.json` to determine which RQs completed.
+   Resume from the first incomplete RQ. The `.session-state.json` within each session dir
+   provides finer-grained intra-RQ recovery.
+4. **After all RQs complete:** write `_batch-summary.md` with:
+   - Per-RQ verdict, sources used, review type, key findings summary
+   - Cross-RQ insights (if RQs overlap in domain)
+   - Batch statistics (total sources, total time, gate pass rate)
+
+**Batch manifest format:**
+```json
+{
+  "batch_started": "2026-05-23T00:00:00Z",
+  "total_rqs": 3,
+  "completed_rqs": 1,
+  "rqs": [
+    {"slug": "teorias-computacionais-cerebro", "status": "completed", "sources": 23},
+    {"slug": "simulacao-uav", "status": "pending"},
+    {"slug": "metodologia-nux", "status": "pending"}
+  ]
+}
+```
+
+---
+
+## Crash Recovery
+
+If the orchestrator process dies mid-pipeline, the session can be resumed by
+reading `.session-state.json` in the session directory:
+
+1. Read state: `code_execution` → `helpers.read_session_state("{session_dir}")`
+2. Get resume point: `helpers.get_resume_stage("{session_dir}")` returns (stage, checklist_item)
+3. Skip completed stages. Resume from the returned stage.
+4. On successful resume: delete `.session-state.json` at Close.
+
+**State is written automatically** at the end of every stage (see steps below).
+No manual intervention needed for normal execution.
+
+---
+
 ## Stage 1: RQ Formulation
 
 > SKILL.md slim header has: Who, Output, Template, Config vars, References.
 > This section has the numbered steps.
 
-1. Load config: `read_file("{SKILL_DIR}/references/configuration.md")`. Note: `output_dir`, `bibliography_path`, `persist_sources`, `source_axes`, `deep_reading`, `agreement_threshold`, `living_review`.
+> **Idempotency rule (all stages):** Before executing any stage, check if its primary
+> output file already exists and is non-empty. If yes: `checklist_update(id=N, status="completed")`
+> and skip to the next stage. This makes resume safe and prevents overwriting completed work.
+> To force re-execution: delete the output file before starting the stage.
+
+1. Load config:
+   a. Check for `.deepseek/deepseek-research.toml` in project root: `read_file(".deepseek/deepseek-research.toml")`.
+   b. If absent: auto-bootstrap via `exec_shell(command: "python3 {SKILL_DIR}/scripts/bootstrap_config.py")`. This detects available axes and writes a config file.
+   c. If present: parse with `read_file` and extract variables. Load reference: `read_file("{SKILL_DIR}/references/configuration.md")` for variable descriptions.
+   d. Note active variables: `output_dir`, `bibliography_path`, `persist_sources`, `source_axes`, `deep_reading`, `agreement_threshold`, `living_review`.
 2. Load epistemology: `read_file("{SKILL_DIR}/references/epistemology.md")` (focus on §Knowledge Type Taxonomy, §Operationalization, §Review Type Declaration).
 3. Setup progress tracking:
    ```
@@ -38,6 +96,7 @@ to keep the main skill body under 400 lines.
    ```
    Use `checklist_update(id, status)` for all subsequent updates — never `checklist_write` again.
 4. Load template: `read_file("{SKILL_DIR}/templates/rq-brief.md")`.
+4a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`. This replaces `{iso8601_utc}`, `{date}`, `{skill_git_hash}`, `{slug}` automatically. Placeholders requiring stage output (`{RQ_TEXT}`, `{rq_sha256}`) are filled later.
 5. Use `request_user_input` to clarify: central question, domains spanned, decisions depending on this research.
 6. Generate slug from RQ: lowercase, hyphens, ≤ 50 chars. Example: "Estado da arte em co-kriging?" → `co-kriging-estado-da-arte`.
 7. Check prior sessions: `grep_files` in `$SESSION_INDEX` for slug/topic. If found, ask user to extend or start fresh.
@@ -51,6 +110,11 @@ to keep the main skill body under 400 lines.
 14. Fill template completely. Write `01-rq-brief.md`.
 15. **Pre-register:** Compute SHA256 of `01-rq-brief.md` via `helpers.compute_sha256()`. Record in file and MANIFEST.txt.
 16. `checklist_update(id=1, status="completed")`.
+17. **Write session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="1.6", current_checklist_item="2", last_completed_stage="1")`.
+
+> **Global rule:** After every stage's final `checklist_update`, write session state with
+> `current_stage` pointing to the next stage and `last_completed_stage` to the current one.
+> This enables crash recovery at any pipeline point.
 
 ---
 
@@ -125,6 +189,11 @@ to keep the main skill body under 400 lines.
 7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}')`.
 8. **Parallel dispatch:** all sub-agents in one turn.
 9. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
+9a. **Read sub-agent output files:** After each sub-agent completes, read the full results:
+    - Web axis: `read_file("/tmp/dsr-web-results.md")`
+    - Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
+    - Bibliography axis: the persistence_manifest JSON block in the sub-agent response
+    - These files contain the COMPLETE source tables (sub-agent inline responses may be truncated).
 10. **Code Reference Extraction (conditional):** If `"bibliography"` in `source_axes` OR `"web"` in `source_axes`:
    a. Scan sub-agent outputs for repository URL patterns (github.com, gitlab.com, crates.io, pypi.org, npmjs.com, or "available at"/"code:"/"repository:" mentions).
    b. For each URL found: verify accessibility via `fetch_url`, classify relevance (1-5), record source of origin.
@@ -204,12 +273,34 @@ to keep the main skill body under 400 lines.
 
 1. Load deep reading methodology: `read_file("{SKILL_DIR}/references/deep-reading.md")`.
 2. Load sub-agent prompt spec: `read_file("{SKILL_DIR}/references/subagent-prompts.md")` §Stage 3.5.
+
+### Priority Queue (guarantees most important sources are deep-read first)
+
 3. Build the deep read queue from Stage 3 output (`03-source-verification.md` §Deep Read Queue).
-4. **For T5 (source code) sources:** Dispatch sub-agents in parallel — one per T5 source. Load sub-agent prompt spec from `references/subagent-prompts.md` §Stage 3.5 dsr-deep-read-t5. Use `helpers.build_subagent_prompt('dsr-deep-read-t5', source_id='{source_id}', repo_url='{repo_url}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}', oss_clone_dir='{oss_clone_dir}')`.
-5. **For non-T5 sources:** Dispatch sub-agents in parallel — one per source. Use `helpers.build_subagent_prompt('dsr-deep-read', ...)`. Dispatch all T5 and non-T5 sub-agents in a single turn. If >10 sources total, batch in groups of 10.
-6. Wait for all sub-agents: `agent_eval(agent_id="...", block=true)` for each.
-7. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section.
-8. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write `_consolidation.md`.
+3a. **Sort by priority.** Assign each source a priority class and sort ascending:
+    - **P1 (answers SQ directly):** Source directly answers a specific sub-question (e.g., S6 directly challenges CBH evidence → SQ2). Re-rank to the top.
+    - **P2 (cross-theory comparison):** Source compares multiple theories (e.g., S4 compares FEP+PP).
+    - **P3 (primary empirical):** High-tier primary source with peer-reviewed empirical data (e.g., S8 in Nature Neuroscience).
+    - **P4 (review/secondary):** Review papers, book chapters, secondary synthesis.
+    - **P5 (code reference):** T5 source code repositories (OSS repos).
+    Sources at the same priority tie-break by relevance score (5 > 4 > 3).
+3b. **Record priority in queue.** Add a `Priority` column to the Deep Read Queue table in `03-source-verification.md`.
+
+### Parallel dispatch with batch cap
+
+4. **Calculate batch size.** MAX_CONCURRENT = 5 (hard cap to avoid dispatcher overload). If total sources > MAX_CONCURRENT, split into batches of MAX_CONCURRENT.
+5. **Batch loop:** For each batch:
+    a. **T5 sources in batch:** If batch contains T5 (source code) sources:
+       - Pre-flight check: verify repo accessible (`fetch_url` for repo URL).
+       - If already cloned (`oss/{org}_{repo}/` exists with .git): `git pull`, record new HEAD.
+       - If not cloned: note in sub-agent prompt that git clone is needed.
+       - Dispatch: `agent_open(name="dr-t5-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read-t5', ...))`.
+    b. **Non-T5 sources in batch:** Dispatch: `agent_open(name="dr-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read', ...))`.
+    c. **Wait for batch:** `agent_eval(agent_id="...", block=true)` for each sub-agent in this batch.
+    d. **Batch checkpoint:** Write `_consolidation.md` partial update after each batch completes. This ensures progress is preserved even if later batches fail.
+6. After all batches complete: final consolidation.
+7. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section. Missing outputs → re-dispatch individually or mark as FAILED.
+8. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write final `_consolidation.md`.
 9. `checklist_update(id=9, status="completed")`.
 
 ---
@@ -308,9 +399,42 @@ to keep the main skill body under 400 lines.
 
 ---
 
-## Close: Gate Details
+## Close: Verification
 
 > SKILL.md slim header references this section for executable gate commands.
+
+### Auto-Run Procedure
+
+The orchestrator MUST execute all 19 gates systematically — never skip this stage.
+Gates verify structural completeness, not truth (see `references/epistemic-limitations.md` §L2).
+
+1. `checklist_update(id=14, status="in_progress")`.
+2. For each gate GATE-1 through GATE-19:
+   a. Execute the gate command(s) described below.
+   b. Record result: PASS / FAIL / WARNING / UNVERIFIABLE / SKIP.
+   c. If FAIL on a blocking gate (GATE-1, GATE-2, GATE-3, GATE-5, GATE-8, GATE-16):
+      - Document the failure reason.
+      - Attempt resolution (e.g., missing file → write it; bare claim → qualify it).
+      - Re-run the gate after resolution.
+   d. Append result to MANIFEST.txt under `## Gate Results`.
+3. After all gates: write final MANIFEST.txt with SHA256 of each output file.
+4. Cleanup temporary artifacts (see Cleanup section below).
+5. Delete `.session-state.json` (crash recovery no longer needed).
+6. `checklist_update(id=14, status="completed")`.
+
+### Gate Results Format (in MANIFEST.txt)
+
+```
+## Gate Results
+| Gate | Result | Notes |
+|------|--------|-------|
+| GATE-1 | PASS | All 13 expected files present |
+| GATE-2 | PASS | Session recorded in index |
+| GATE-3 | PASS | 0 bare claims (2 false positives cleared) |
+| ... | ... | ... |
+```
+
+### Gate Details
 
 Each gate is a structural integrity check. Gates verify form, not truth —
 see `references/epistemic-limitations.md` §L2.
@@ -465,16 +589,4 @@ Both must return match. FAIL if absent.
 
 ---
 
-**Cleanup:** Remove temporary clones of repositories that were not persisted.
-```
-if [ -d "{oss_clone_dir}" ]; then
-  for repo_dir in {oss_clone_dir}/*/; do
-    echo "Cleaning up clone: $repo_dir"
-    rm -rf "$repo_dir"
-  done
-fi
-```
-Clones in `{oss_clone_dir}` are temporary artifacts for deep reading. They are removed after session close
-unless `persist_sources == true` (in which case they remain for future sessions).
-
-`checklist_update(id=13, status="completed")`.
+**Cleanup note:** Temporary repository clones in `{oss_clone_dir}` are removed during Close (see Close: Verification §Auto-Run Procedure step 4). They persist only if `persist_sources == true`.

@@ -69,7 +69,8 @@ Generic — no project-specific infrastructure dependencies.
 | Model matrix + thinking budget | `references/model-matrix.md` | Before sub-agent dispatch |
 | Context budget + RLM thresholds | `references/context-budget.md` | Stage 2, Stage 3, Stage 4 |
 | Sub-agent prompts (incl. dsr-opensource, dsr-deep-read-t5) | `references/subagent-prompts.md` | Stage 2, Stage 3.5, Stage 4.5 |
-| Python helpers (SHA256, index ops, kappa, prompt builder) | `scripts/helpers.py` | All stages (via `code_execution`) |
+| Python helpers (SHA256, index ops, kappa, prompt builder, placeholder resolver, session state) | `scripts/helpers.py` | All stages (via `code_execution`) |
+| Auto-config bootstrapper | `scripts/bootstrap_config.py` | Stage 1 (if .toml missing) |
 | PRESS search strategy peer review | `references/press-checklist.md` | Stage 2.2 (web axis) |
 | Risk of Bias assessment (incl. opensource repository domains) | `references/risk-of-bias.md` | Stage 3 (if sources ≥1) |
 | Open-Source applicability decision template | `templates/opensource-decision.md` | Stage 1.7 |
@@ -90,11 +91,59 @@ Generic — no project-specific infrastructure dependencies.
 **Template:** `{SKILL_DIR}/templates/rq-brief.md`
 **Config vars:** `output_dir`, `bibliography_path`, `persist_sources`, `source_axes`, `deep_reading`, `agreement_threshold`, `living_review`, `surveillance_interval_days`, `protocol_registry`, `stakeholder_review`
 **References:** `configuration.md`, `epistemology.md`, `epistemic-limitations.md`
+**Auto-config:** If `.deepseek/deepseek-research.toml` is missing, `scripts/bootstrap_config.py` auto-detects available axes and writes a default config.
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 1
 > **Initialize tracking:** The first step in pipeline-detail.md sets up `checklist_write` — this MUST be called before any `checklist_update`.
 
 Key decisions: RQ text, knowledge type classification, operational definitions, analysis plan (pre-registered), FINER scoring, review type declaration, pre-registration SHA256.
+
+### Stage 1 Safety Check: Output Isolation
+
+**CRITICAL — Run BEFORE any output is written.** Verify that `{output_dir}` and `{oss_clone_dir}`
+resolve to paths **outside** `{SKILL_DIR}`. The skill installation directory must never contain
+session artifacts, cloned repositories, or research reports.
+
+Resolve both paths relative to the **project working directory** (where the skill was invoked),
+NOT relative to `{SKILL_DIR}`.
+
+```python
+import os, sys
+
+skill_dir = os.path.abspath("{SKILL_DIR}")
+project_cwd = os.getcwd()
+output_dir = os.path.abspath(os.path.join(project_cwd, "{output_dir}"))
+oss_clone_dir = os.path.abspath(os.path.join(project_cwd, "{oss_clone_dir}"))
+
+# Verify output_dir and oss_clone_dir do NOT resolve inside SKILL_DIR.
+def inside(parent, child):
+    return child == parent or child.startswith(parent + os.sep)
+
+errors = []
+if inside(skill_dir, output_dir):
+    errors.append(f"output_dir ({output_dir}) resolves inside SKILL_DIR ({skill_dir})")
+if inside(skill_dir, oss_clone_dir):
+    errors.append(f"oss_clone_dir ({oss_clone_dir}) resolves inside SKILL_DIR ({skill_dir})")
+
+if errors:
+    print("FATAL: Output isolation violated:", file=sys.stderr)
+    for e in errors:
+        print(f"  - {e}", file=sys.stderr)
+    print("\nCreate .deepseek/deepseek-research.toml in your project root and re-run from there.",
+          file=sys.stderr)
+    sys.exit(1)
+
+print(f"output_dir={output_dir}")
+print(f"oss_clone_dir={oss_clone_dir}")
+```
+
+Run this via `code_execution` or `exec_shell python -c '...'`. Use `{SKILL_DIR}`, `{output_dir}`,
+and `{oss_clone_dir}` from the resolved configuration.
+
+**If the check fails:** Abort immediately. Tell the user:
+> "FATAL: The output directory resolves inside the skill installation directory.
+> Create a `.deepseek/deepseek-research.toml` in your project with `output_dir` set
+> (e.g., `output_dir = \"research-reports/\"`), then re-run from the project root."
 
 ---
 
@@ -286,10 +335,12 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16 failures must be
 | GATE-18 | Textual evidence + human verifiability | If `deep_reading != false` |
 | GATE-19 | Session MANIFEST integrity — SHA256 + stage log | Always |
 
-> **Executable gate commands:** `references/pipeline-detail.md` §Close — contains the full
+> **Executable gate commands:** `references/pipeline-detail.md` §Close: Verification — contains the full
 > `grep_files`, `exec_shell`, `validate_data`, and shell script commands for each gate.
+> **Auto-run procedure:** Gates are executed systematically per the Auto-Run Procedure in pipeline-detail.md.
+> Results are recorded in MANIFEST.txt under `## Gate Results`.
 
-`checklist_update(id=13, status="completed")`.
+`checklist_update(id=14, status="completed")`.
 
 ---
 
@@ -315,5 +366,6 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16 failures must be
 ├── 05-report.md
 ├── 05-plain-summary.md
 ├── 05-decision-brief.md
-└── 05-data-supplement.json          # omitted if no quantitative data extracted
+├── 05-data-supplement.json          # omitted if no quantitative data extracted
+├── .session-state.json              # crash recovery state (auto-managed, deleted at Close)
 ```

@@ -21,6 +21,50 @@ import subprocess
 from pathlib import Path
 
 
+def resolve_placeholders(template_text: str, skill_dir: str = "", session_slug: str = "") -> str:
+    """Auto-resolve computable placeholders in a template string.
+
+    Resolves: {iso8601_utc}, {date}, {skill_git_hash}, {slug}
+    Does NOT resolve: {RQ_TEXT}, {rq_sha256}, {session_dir} (require stage output).
+
+    Args:
+        template_text: Template content with placeholders in braces.
+        skill_dir: Path to skill directory for git hash detection.
+        session_slug: Session slug (e.g., "2026-05-22-teorias-computacionais-cerebro").
+
+    Returns:
+        Template text with computable placeholders replaced.
+    """
+    from datetime import datetime, timezone
+
+    result = template_text
+    now = datetime.now(timezone.utc)
+    result = result.replace("{iso8601_utc}", now.isoformat())
+    result = result.replace("{date}", now.strftime("%Y-%m-%d"))
+
+    if session_slug:
+        result = result.replace("{slug}", session_slug)
+        # Also support the compound form used in session headers
+        result = result.replace("{date}-{slug}", session_slug)
+
+    # Git hash from skill directory (fallback to "unknown")
+    git_hash = "unknown"
+    if skill_dir:
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["git", "-C", skill_dir, "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5
+            )
+            if r.returncode == 0:
+                git_hash = r.stdout.strip()
+        except Exception:
+            pass
+    result = result.replace("{skill_git_hash}", git_hash)
+
+    return result
+
+
 def compute_sha256(filepath: str) -> str:
     """Compute SHA256 hex digest of a file. Returns empty string on error."""
     try:
@@ -28,6 +72,89 @@ def compute_sha256(filepath: str) -> str:
             return hashlib.sha256(f.read()).hexdigest()
     except (OSError, FileNotFoundError):
         return ""
+
+
+def write_session_state(session_dir: str, **kwargs: str) -> str:
+    """Write or update .session-state.json for crash recovery.
+
+    Records current stage, config snapshot, pending actions, and sub-agent map.
+    Called after every checklist_update in the orchestrator.
+
+    Args:
+        session_dir: Session output directory (e.g., "research-reports/2026-05-22-slug/").
+        **kwargs: Fields to update: current_stage, current_checklist_item,
+                  last_completed_stage, pending_actions, sub_agent_map,
+                  config_snapshot (as JSON string).
+
+    Returns:
+        Path to the written state file.
+    """
+    from datetime import datetime, timezone
+
+    state_path = Path(session_dir) / ".session-state.json"
+
+    # Load existing state if present
+    existing = {}
+    if state_path.exists():
+        try:
+            existing = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    # Merge new fields
+    existing["updated_at"] = datetime.now(timezone.utc).isoformat()
+    for key, value in kwargs.items():
+        if key == "config_snapshot" and isinstance(value, str):
+            try:
+                existing[key] = json.loads(value)
+            except json.JSONDecodeError:
+                existing[key] = value
+        elif key in ("pending_actions",) and isinstance(value, str):
+            try:
+                existing[key] = json.loads(value)
+            except json.JSONDecodeError:
+                existing[key] = [value]
+        elif key == "sub_agent_map" and isinstance(value, str):
+            try:
+                existing[key] = json.loads(value)
+            except json.JSONDecodeError:
+                existing[key] = value
+        else:
+            existing[key] = value
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+    return str(state_path)
+
+
+def read_session_state(session_dir: str) -> dict:
+    """Read .session-state.json for crash recovery.
+
+    Returns empty dict if no state file exists (fresh session).
+    """
+    state_path = Path(session_dir) / ".session-state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def get_resume_stage(session_dir: str) -> tuple[str, int]:
+    """Determine which stage and checklist item to resume from.
+
+    Returns:
+        (stage_name, checklist_item_id) or ("1", 1) for fresh session.
+        Example: ("3.5", 10) means resume at Stage 3.5, checklist item 10.
+    """
+    state = read_session_state(session_dir)
+    if not state:
+        return ("1", 1)
+    current = state.get("current_stage", "1")
+    item = state.get("current_checklist_item", 1)
+    return (str(current), int(item))
 
 
 def query_index(
@@ -229,14 +356,19 @@ def build_subagent_prompt(
     The returned string is safe to pass directly to agent_open(prompt=...).
 
     Supported templates:
-      - dsr-bibliography: kwargs = {rq_text, bibliography_path, main_topic,
+      - dsr-bibliography: kwargs = {rq_text, bibliography_path, main_topic, topics (optional),
            local_sources_block (optional), local_sources_json (optional)}
-      - dsr-web: kwargs = {rq_text, main_topic}
+        topics: comma-separated short topic names for per-topic negative queries.
+          Example: "thousand brain theory,critical brain hypothesis,free energy principle"
+          When omitted, negative queries fall back to main_topic (backward compatible).
+      - dsr-web: kwargs = {rq_text, main_topic, topics (optional)}
+          topics: same as above. Generates per-topic queries like
+          "limitations of thousand brain theory" instead of one giant blob.
       - dsr-code: kwargs = {rq_text}
-      - dsr-opensource: kwargs = {rq_text, main_topic (optional)}
+      - dsr-opensource: kwargs = {rq_text, main_topic (optional), topics (optional)}
       - dsr-deep-read-t5: kwargs = {source_id, repo_url, rq_text, skill_dir, oss_clone_dir}
       - dsr-da: kwargs = {session_dir, skill_dir}
-      - dsr-grey: kwargs = {rq_text, main_topic}
+      - dsr-grey: kwargs = {rq_text, main_topic, topics (optional)}
       - dsr-tiebreak: kwargs = {rq_text, bibliography_path, disagreement_list}
       - dsr-deep-read: kwargs = {source_id, source_path_or_url, source_title, rq_text, skill_dir}
     """
@@ -257,10 +389,30 @@ def build_subagent_prompt(
     return builder(**kwargs)
 
 
+def _build_per_topic_queries(topics_str: str, query_template: str) -> str:
+    """Generate per-topic queries from a comma-separated topics string.
+
+    Args:
+        topics_str: Comma-separated short topic names, e.g. "TBT,CBH,FEP"
+        query_template: Template with {topic} placeholder, e.g. '"limitations of {topic}"'
+
+    Returns:
+        Newline-separated bullet list of queries, one per topic.
+        If topics_str is empty, returns empty string.
+    """
+    if not topics_str or not topics_str.strip():
+        return ""
+    topics = [t.strip() for t in topics_str.split(",") if t.strip()]
+    if not topics:
+        return ""
+    return "\n".join(f'- {query_template.format(topic=t)}' for t in topics)
+
+
 def _build_bibliography_prompt(
     rq_text: str,
     bibliography_path: str,
     main_topic: str,
+    topics: str = "",
     local_sources_block: str = "",
     local_sources_json: str = "",
 ) -> str:
@@ -291,15 +443,25 @@ def _build_bibliography_prompt(
     }
     manifest_json = json.dumps(persistence_manifest_example, indent=2)
 
+    if topics:
+        per_topic = _build_per_topic_queries(topics, '"limitations of {topic}"')
+        per_topic += "\n" + _build_per_topic_queries(topics, '"criticism of {topic}"')
+        per_topic += "\n" + _build_per_topic_queries(topics, '"failure cases of {topic}"')
+        negative_queries_block = f"""## Mandatory: Negative search (per-topic)
+For each topic below, you MUST run ALL of these queries:
+{per_topic}"""
+    else:
+        negative_queries_block = f"""## Mandatory: Negative search
+For the main topic of this RQ, you MUST run at least these queries:
+- "limitations of {main_topic}"
+- "criticism of {main_topic}"
+- "failure cases of {main_topic}\""""
+
     prompt = f"""Search project bibliography at {bibliography_path} for sources relevant to RQ: {rq_text}
 
 {local_sources_block}
 
-## Mandatory: Negative search
-For the main topic of this RQ, you MUST run at least these queries:
-- "limitations of {main_topic}"
-- "criticism of {main_topic}"
-- "failure cases of {main_topic}"
+{negative_queries_block}
 Report findings in the persistence_manifest under 'negative_search'.
 
 ## Output contract
@@ -320,14 +482,24 @@ Rules:
     return prompt
 
 
-def _build_web_prompt(rq_text: str, main_topic: str) -> str:
-    return f"""Web search for RQ: {rq_text}
-
-## Mandatory: Negative search
+def _build_web_prompt(rq_text: str, main_topic: str, topics: str = "") -> str:
+    if topics:
+        per_topic = _build_per_topic_queries(topics, '"limitations of {topic}"')
+        per_topic += "\n" + _build_per_topic_queries(topics, '"criticism of {topic}"')
+        per_topic += "\n" + _build_per_topic_queries(topics, '"alternatives to {topic}"')
+        negative_section = f"""## Mandatory: Negative search (per-topic)
+You MUST run these queries IN ADDITION to the primary topic queries:
+{per_topic}"""
+    else:
+        negative_section = f"""## Mandatory: Negative search
 You MUST run these queries IN ADDITION to the primary topic queries:
 - "limitations of {main_topic}"
 - "criticism of {main_topic}"
-- "alternatives to {main_topic}"
+- "alternatives to {main_topic}\""""
+
+    return f"""Web search for RQ: {rq_text}
+
+{negative_section}
 Report all queries and their results in a 'negative_search' section.
 
 ## Output REQUIRED format
@@ -338,7 +510,13 @@ Report all queries and their results in a 'negative_search' section.
 | Query | Results returned | Results used |
 
 ### Negative Search
-| Query | Results found | Key findings |"""
+| Query | Results found | Key findings |
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE source table, search audit, and
+negative search results to `/tmp/dsr-web-results.md` using the write_file tool.
+This file will be read by the orchestrator after you finish. Your inline response
+can be a summary — the file must contain the full results."""
 
 
 def _build_code_prompt(rq_text: str) -> str:
@@ -348,8 +526,30 @@ def _build_code_prompt(rq_text: str) -> str:
 | Source ID | File:Line | Type (impl/doc/test/config) | Relevance (1-5) | Why relevant |"""
 
 
-def _build_opensource_prompt(rq_text: str, main_topic: str = "") -> str:
+def _build_opensource_prompt(rq_text: str, main_topic: str = "", topics: str = "") -> str:
     topic = main_topic or rq_text
+    if topics:
+        per_topic_neg = _build_per_topic_queries(topics, '"{topic} abandoned"')
+        per_topic_neg += "\n" + _build_per_topic_queries(topics, '"{topic} unmaintained"')
+        per_topic_neg += "\n" + _build_per_topic_queries(topics, '"{topic} deprecated"')
+        negative_section = f"""## Negative Search (MANDATORY — per-topic)
+
+Execute ALL of these contrary-evidence searches:
+{per_topic_neg}"""
+        neg_results_rows = "\n".join(
+            f'| {t} | "abandoned {t}" | (N) | (summary or "No abandoned projects found") |\n'
+            f'| {t} | "unmaintained {t}" | (N) | (summary or "No unmaintained projects found") |'
+            for t in [x.strip() for x in topics.split(",") if x.strip()]
+        )
+    else:
+        negative_section = f"""## Negative Search (MANDATORY)
+
+Execute ALL of these contrary-evidence searches:
+- "{topic} abandoned"
+- "{topic} unmaintained"
+- "{topic} deprecated\""""
+        neg_results_rows = f'| {topic} | "abandoned {topic}" | (N) | (summary or "No abandoned projects found") |\n| {topic} | "unmaintained {topic}" | (N) | (summary or "No unmaintained projects found") |'
+
     return f"""Search open-source repositories for implementations, benchmarks,
 libraries, and tools relevant to: {rq_text}
 
@@ -372,12 +572,7 @@ Execute ALL of these searches:
 - "{topic} open source"
 - "{topic} library" (append programming language if mentioned in RQ)
 
-## Negative Search (MANDATORY)
-
-Execute ALL of these contrary-evidence searches:
-- "{topic} abandoned"
-- "{topic} unmaintained"
-- "{topic} deprecated"
+{negative_section}
 
 Report what you found — "No results" is valid.
 
@@ -399,14 +594,19 @@ Report what you found — "No results" is valid.
 
 | Topic | Query | Results found | Key findings |
 |-------|-------|--------------|--------------|
-| {topic} | "abandoned {topic}" | (N) | (summary or "No abandoned projects found") |
-| {topic} | "unmaintained {topic}" | (N) | (summary or "No unmaintained projects found") |
+{neg_results_rows}
 
 ## Saturation
 
 Report whether saturation was reached:
 - **Criterion met:** (yes — last N sources added no new repositories / no — below saturation_window)
-- **Sources capped:** (yes — reached max_sources_per_axis / no)"""
+- **Sources capped:** (yes — reached max_sources_per_axis / no)
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE source table, negative search results,
+and saturation declaration to `/tmp/dsr-opensource-results.md` using the write_file tool.
+This file will be read by the orchestrator after you finish. Your inline response
+can be a summary — the file must contain the full results."""
 
 
 def _build_deep_read_t5_prompt(
@@ -521,7 +721,19 @@ Rules:
 - Do NOT introduce new sources — only resolve the listed disagreements."""
 
 
-def _build_grey_prompt(rq_text: str, main_topic: str) -> str:
+def _build_grey_prompt(rq_text: str, main_topic: str, topics: str = "") -> str:
+    if topics:
+        per_topic = _build_per_topic_queries(topics, '"limitations of {topic}"')
+        per_topic += "\n" + _build_per_topic_queries(topics, '"alternatives to {topic}"')
+        negative_section = f"""## Mandatory: Negative search (per-topic)
+You MUST run these queries IN ADDITION to the primary topic queries:
+{per_topic}"""
+    else:
+        negative_section = f"""## Mandatory: Negative search
+You MUST run these queries IN ADDITION to the primary topic queries:
+- "limitations of {main_topic}"
+- "alternatives to {main_topic}\""""
+
     return f"""Search grey literature for RQ: {rq_text}
 
 Grey literature = theses, preprints, conference proceedings, technical reports,
@@ -534,10 +746,7 @@ and institutional repository content NOT indexed in mainstream academic database
 - ProQuest Dissertations & Theses (if accessible)
 - Institutional repositories (MIT DSpace, Stanford Digital Repository, etc.)
 
-## Mandatory: Negative search
-You MUST run these queries IN ADDITION to the primary topic queries:
-- "limitations of {main_topic}"
-- "alternatives to {main_topic}"
+{negative_section}
 Report all queries and their results in a 'negative_search' section.
 
 ## Output REQUIRED format

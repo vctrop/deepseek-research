@@ -1,1 +1,4 @@
 .deepseek/state/subagents.v1.json
+__pycache__/
+research-reports/
+oss/
