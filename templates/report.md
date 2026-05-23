@@ -6,34 +6,30 @@ model: {model_id}
 timestamp_utc: {iso8601_utc}
 ---
 
-# Terminal Report
+# Research Report
 
 **Session:** `{date}-{slug}`
 **Stage:** 5 — Terminal Report
 
-## Placeholders
+## Executive Summary
 
-| Placeholder | Populated by | Source |
-|---|---|---|
-| `{date}` | Orchestrator | System date |
-| `{slug}` | Orchestrator | From Stage 1 |
-| `{RQ_TEXT}` | Orchestrator | From `01-rq-brief.md` |
-| All findings (K1, K2, ...) | Orchestrator | From `04-synthesis.md`, after Devil's Advocate revisions |
-| `{available_axes}` | Orchestrator | From Stage 1 config |
+{4-6 paragraphs covering: research question, method, key findings, confidence, limitations.}
+
+---
 
 ## Research Question
 
 {RQ_TEXT}
 
-## Review Type
-
-{review_type} — see `01-rq-brief.md` §Review Type for rationale and constraints on conclusions.
-
 ## Key Findings
 
 ### K1: {finding_title}
-{Qualified claim. See `references/iron-rule-c.md` §Qualified Replacements.}
-**Sources:** S{n} (source tier: HIGH/MEDIUM/LOW, evidence strength: STRONG/MODERATE/WEAK), S{m} (source tier: HIGH/MEDIUM/LOW, evidence strength: STRONG/MODERATE/WEAK)
+
+{Qualified claim — Iron Rule C applies.}
+
+**Sources:** S{n} (credibility: HIGH/MEDIUM/LOW, evidence: STRONG/MODERATE/WEAK),
+S{m} (credibility: HIGH/MEDIUM/LOW, evidence: STRONG/MODERATE/WEAK)
+
 **Confidence:** HIGH / MEDIUM / LOW / SPECULATIVE
 
 ### K2: {finding_title}
@@ -41,34 +37,38 @@ timestamp_utc: {iso8601_utc}
 
 ---
 
-*If insufficient evidence (0 sources, negative report):*
+*If insufficient evidence (0 sources):*
 > **Finding:** Insufficient evidence to answer this research question.
-> **Sources:** 0 sources were found across {available_axes} axes.
+> **Sources:** 0 sources found across {available_axes} axes.
 > **Negative search effort:** Queries X, Y, Z returned no contrary evidence either.
-> **See:** 02-source-inventory.md for diagnostic.
 
 ---
 
-## Numerical Constants
+## Structured Data
 
-*If RQ is qualitative:*
-> This research question is qualitative. No numerical constants were extracted.
+### Numerical Constants
 
-| Symbol | Value | Unit | Source | Evidence strength | Confidence |
-|--------|-------|------|--------|-------------------|------------|
+*If RQ is qualitative: "This research question is qualitative. No numerical constants were extracted."*
+
+| Symbol | Value | Unit | Source | Evidence | Confidence |
+|--------|-------|------|--------|----------|------------|
 | {symbol} | {value} | {unit} | S{n} | STRONG/MODERATE/WEAK | HIGH/MEDIUM/LOW |
 
-## Algorithms / Patterns
+### Algorithms / Patterns
 
-| Name | Complexity / Structure | Domain Assumptions | Source | Evidence strength | Confidence |
-|------|------------------------|--------------------|--------|-------------------|------------|
+| Name | Complexity / Structure | Domain Assumptions | Source | Evidence | Confidence |
+|------|------------------------|--------------------|--------|----------|------------|
 | {name} | {O(...) or pattern desc} | {assumptions} | S{n} | STRONG/MODERATE/WEAK | HIGH/MEDIUM/LOW |
+
+---
 
 ## Sources
 
-| Source ID | Location | Type | Source Tier | P/S/T | RoB | Evidence Strength Used | Used in |
-|-----------|----------|------|-------------|-------|-----|----------------------|---------|
-| S{n} | {path/URL} | {type} | HIGH/MEDIUM/LOW | P/S/T | Low/Some concerns/High/Critical | STRONG/MODERATE/WEAK | K1, K2 |
+| Source ID | Location | Type | Credibility | P/S/T | RoB | Used in |
+|-----------|----------|------|-------------|-------|-----|---------|
+| S{n} | {path/URL} | paper/code/doc | HIGH/MEDIUM/LOW | P/S/T | Low/Medium/High | K1, K2 |
+
+---
 
 ## Open Questions
 
@@ -76,11 +76,37 @@ timestamp_utc: {iso8601_utc}
 |----------|----------|-----------|
 | {question} | BLOCKING / SIGNIFICANT / MINOR | {concrete action} |
 
-**Severity:** BLOCKING (cannot answer RQ without this), SIGNIFICANT (substantially weakens), MINOR (would improve but not essential).
+---
+
+## Methodological Note
+
+This report was produced by an LLM-based rapid evidence assessment pipeline
+(deepseek-research v3.0). The following limitations apply:
+
+1. **Scope:** This is a rapid evidence assessment, not a systematic review.
+   Source discovery is limited to the configured axes ({available_axes}) and
+   may miss relevant literature.
+
+2. **Single-reviewer bias:** All judgments (relevance, bias, evidence grading)
+   are performed by LLM sub-agents without independent human review. There
+   is no inter-rater reliability check.
+
+3. **Coverage limitations:** Search is bounded by time ({date}), language
+   (English-primary), and accessibility (paywalled sources excluded).
+
+4. **Confidence labels:** HIGH / MEDIUM / LOW / SPECULATIVE are qualitative
+   guidance based on source convergence and quality, not statistical measures.
+
+5. **Mathematical claims:** Any mathematical claim (M-grade) is flagged and
+   requires human verification. The LLM cannot verify mathematical proofs.
+
+---
 
 ## IRON RULE C Compliance
 
-This report was written under IRON RULE C constraints. See `references/iron-rule-c.md`.
-All claims use qualified language — verified by GATE-3 (two-pass grep for bare claims).
+All claims use qualified language. Bare claims (validated, proved, confirmed,
+demonstrated, ensures, guarantees, always, never, optimal, definitive,
+conclusive, certainly, undoubtedly, obviously, clearly) are forbidden
+without source + method + conditions qualification.
 
-**Confidence language scale used:** HIGH / MEDIUM / LOW / SPECULATIVE (see `references/iron-rule-c.md` §Confidence Language Scale).
+Confidence language scale: HIGH / MEDIUM / LOW / SPECULATIVE.
