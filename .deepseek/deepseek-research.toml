@@ -1,0 +1,55 @@
+# deepseek-research configuration
+# Copy this file to your project root as .deepseek/deepseek-research.toml
+# All values shown are defaults — uncomment and modify as needed.
+
+# Discovery axes: bibliography (local corpus), codebase, web, grey (arxiv/techrxiv)
+source_axes = ["bibliography", "codebase", "web"]
+
+# Path to local bibliography index
+bibliography_path = "bibliography/"
+
+# Output directory for research reports
+output_dir = "research-reports/"
+
+# Session history index
+session_index = "deep-search-sessions.json"
+
+# Persist web-discovered sources to local corpus
+persist_sources = true
+
+# Project-specific verification commands (optional)
+integration_checks = []
+
+# Hard ceiling on sources per discovery axis
+max_sources_per_axis = 30
+
+# Consecutive sources with no new claims before declaring saturation
+saturation_window = 5
+
+# Dual independent screening for bibliography axis
+dual_screening = false
+
+# Cohen's κ threshold for inter-rater reliability warning (0.0-1.0)
+agreement_threshold = 0.60
+
+# Protocol pre-registration: "osf", "local", or "none"
+protocol_registry = "local"
+
+# OSF credentials (only if protocol_registry = "osf")
+osf_token = ""
+osf_project_id = ""
+
+# Meta-analysis: "auto" (≥3 quantitative sources), "always", or "never"
+meta_analysis = "auto"
+
+# Stakeholder review of draft findings
+stakeholder_review = false
+
+# Deep source reading via RLM chunking
+deep_reading = true
+
+# Living systematic review with scheduled updates
+living_review = false
+
+# Days between surveillance searches for living reviews
+surveillance_interval_days = 90
