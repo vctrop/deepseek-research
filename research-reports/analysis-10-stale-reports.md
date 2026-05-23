@@ -1,146 +1,235 @@
-# Análise Cross-Relatório: 10 Data Points da Skill deepseek-research v3.0
+# Segunda Análise Crítica: Os Erros Ainda Aconteceriam?
 
 **Data:** 2026-05-23
-**Fonte:** `/home/vctrop/Victor/Ponto-Azul/nux/research-reports/stale_2026-05-23-*`
-**Skill version:** `6f4d6a4` (maioria dos relatórios)
-**Método:** Análise estrutural de 10 relatórios completos (01 a 05 + deep-reads + MANIFEST + protocol-freeze)
+**Contexto:** As 6 frentes de correção foram implementadas nos commits `be79a49` + `47b8a0a`.
+**Pergunta:** A versão corrigida da skill ainda cometeria os mesmos erros dos 10 relatórios stale?
 
 ---
 
-## Sumário Executivo
+## Resposta Curta
 
-Dos 10 relatórios, **todos** reportam 5/5 GATEs PASS nos MANIFESTs. Isso não reflete qualidade — reflete que os GATEs atuais só verificam estrutura, não verdade. Os 3 problemas identificados na análise da própria skill (URLs fabricadas, verificação pulada, deep reads superficiais) manifestam-se aqui de forma diferente — o pipeline do nux tem mitigadores parciais (usa código local como fonte primária), mas falha consistentemente em fontes bibliográficas externas.
-
----
-
-## Tabela de Severidade
-
-| Relatório | Fontes | Deep reads | PDFs | Abstract-only | Severidade | Nota |
-|-----------|--------|-----------|------|--------------|------------|------|
-| v08-planing-waterjet | 17 | 4 (código) | 0 | 0 | MINOR | Sem fontes externas — usa reports internos |
-| v09-synthesis | 22 | 4 (bib) | 5 menções | 0 | MINOR | Melhor da classe; busca web rate-limited |
-| v1.0-environment | 38 | 4 (2 cód, 2 bib) | 0 | **1 (P6-P9)** | **MODERATE** | RQ2 inteira baseada em abstracts I-grade |
-| v1.2-multi-material | 32 | 9 (mix) | 2 menções | 0 | MINOR | Bom equilíbrio código+bib |
-| v1.3-compiler-ir | 32 | 8 (mix) | 6 menções | 0 | MINOR | Fontes externas acessadas |
-| v1.4-milestone | 29 | 7 (bib) | 1 menção | 0 | MINOR | Tem métricas de chunking |
-| v1.5-ground-effect | 18 | 8 (5 PDF, 3 cód) | **9 menções** | 0 | **GOOD** | **Melhor relatório — PDFs reais com read_file** |
-| v1.7-credibility | 22 | 6 (mix) | 0 | 0 | MINOR | 0 Iron Rule C violations |
-| v1.8-cross-domain | 15 | 4 (mix) | 2 menções | 0 | MINOR | Escopo menor |
-| v2.0-lightcompanion | **73** | 6 (6 bib) | 0 | **4 (W-02,W-04,W-07,B-01)** | **SEVERE** | 4/6 deep reads são abstract/snippets; 60 fontes |
+**Sim, vários deles.** As correções são majoritariamente constrangimentos estruturais
+(templates, regras documentadas, campos obrigatórios nos headers) que dependem de
+um orquestrador LLM disciplinado para executá-las. Nenhuma correção é um
+*enforcement automático* — código determinístico que bloqueia o pipeline se
+violado. A skill melhorou significativamente, mas o problema fundamental persiste:
+**o executor do pipeline é uma LLM, e LLMs podem pular etapas, interpretar regras
+de forma frouxa, ou reportar métricas falsas.**
 
 ---
 
-## Achados por Categoria
+## Mapeamento Falha → Correção → Persistência
 
-### 1. Fontes Externas: O Calcanhar de Aquiles
+### Falha 1: URLs fabricadas (sub-agente Flash gera arXiv ID errado)
 
-**Padrão consistente:** Papers acadêmicos externos são sistematicamente sub-processados. Em contraste, código-fonte local e research reports internos são bem processados.
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Prevenção na origem | Nenhuma — sub-agente podia reportar qualquer URL | Prompt exige `fetch_url` de verificação + anti-hallucination rule |
+| Detecção | Nenhuma — GATE-0 não existia | GATE-0: fetch_url + title match em toda fonte com URL |
+| **Persiste?** | — | **Sim, se o orquestrador pular o GATE-0** |
 
-| Relatório | Fontes externas com texto completo | Fontes externas apenas abstract/snippet |
-|-----------|-----------------------------------|---------------------------------------|
-| v1.0 | 0 | 8 (P6-P9 + W13-W17 como UNVERIFIABLE) |
-| v1.5 | 5 (PDFs locais via read_file) | 0 |
-| v2.0 | 2 (W-07-web parcial) | 4 (W-02, W-04, W-07-web, B-01) |
+**Por que:** O GATE-0 é uma instrução no SKILL.md, não um script executado
+automaticamente. Se o orquestrador (LLM Pro) estiver com pressa, contexto cheio,
+ou simplesmente confiar que "o arXiv é confiável", ele pode pular a verificação
+— exatamente como fez com "ACCESSIBLE (inferred)" antes.
 
-**v1.5 é a exceção que prova a regra:** quando PDFs existem localmente, o pipeline os processa com `read_file`. A falha não está no processamento — está na **ausência de aquisição**. A SPEC-003 (Unpaywall + arXiv PDF + Sci-Hub) fecha exatamente este gap.
+**Cenário de falha:** Orquestrador processa 30 fontes, vê que a maioria é arXiv,
+decide "vou verificar só as não-arxiv". Uma URL fabricada de arXiv passa.
 
-### 2. v1.0: O Caso da RQ2 Baseada em Abstracts
-
-O deep read `P6-P9-precipitation.md` (59 linhas) declara explicitamente:
-
-> "Status: Rapid evidence assessment via abstracts and snippets. Full papers blocked by Cloudflare/JS challenges. Evidence grade: I (inference from abstracts and search snippets)."
-
-Todas as 7 claims são I-grade. O 05-report.md (linha 84) honestamente reporta:
-
-> "Sources: P6 (Emerald 2022, credibility MEDIUM, evidence: I-grade from abstract)..."
-
-O MANIFEST reporta GATE-3 (Textual Evidence) PASS, mas as claims de precipitation são I-grade — **GATE-3 não valida que claims STRONG tenham evidência V-grade; ele só verifica que claims STRONG em 04-synthesis.md têm citação**. Como o 04-synthesis.md classificou precipitation como MODERATE (não STRONG), o gate passou. Mas o problema real é que **uma RQ inteira é respondida com evidência de qualidade mínima**.
-
-### 3. v2.0: O Caso dos "V-grade" de Snippets
-
-W-04 deep read: "status: PARTIAL — abstract/snippets only; full text not accessed (rate limited)". Claims extraídos de "ScienceDirect snippet", "PMC/NIH snippet", "dsr-bibliography summary". Classificados como V-grade e P-grade.
-
-**Isto é uma classificação incorreta:** Um snippet de busca web não é V-grade (verbatim do paper). É I-grade (inferência de fonte intermediária). O sub-agente dsr-bibliography sumarizou o snippet; o deep read reporta o sumário como V-grade. **Há duas camadas de paráfrase entre o texto real do paper e a claim.**
-
-O MANIFEST lista 10 claims STRONG com "V (verbatim)" — mas W-04-C1 é "ScienceDirect snippet", não o paper. Isso infla artificialmente a confiança do relatório.
-
-### 4. v1.5: O Melhor Relatório — e o Que Ele Prova
-
-5 PDFs processados com `read_file pages 1-5`, `pages 1-3`, etc. Tamanhos reais: 756KB, 1.38MB, 6.78MB, 4.01MB, 1.24MB. O `read_file` extraiu texto de PDFs binários com sucesso.
-
-**O que isso prova:** O mecanismo de extração de PDF já funciona. O problema nunca foi técnico — foi de **aquisição**: os PDFs estavam no `bibliography/` local. A SPEC-003 simplesmente estende isso para PDFs remotos.
-
-Limitação: mesmo em v1.5, a leitura foi seletiva (páginas 1-3, 1-5) — não chunking completo. Coverage real é ~15-30%.
-
-### 5. Iron Rule C: Falsos Positivos em Massa
-
-| Relatório | Hits do grep | Prováveis falsos positivos |
-|-----------|-------------|--------------------------|
-| v1.0 | 12 | ~8 (verbatim quotes de papers: "The presented results confirm...") |
-| v1.5 | 6 | ~4 |
-| v2.0 | 3 | ~2 |
-
-O GATE-2 atual faz grep cego de palavras proibidas, sem verificar se são:
-- Verbatim quotes de fontes (legítimo)
-- Negações ("not validated")
-- Contexto de citação ("confirmed in peer-reviewed literature...")
-
-Isso gera falso sentimento de segurança — o gate reporta "PASS" após inspeção manual, mas a inspeção é ela mesma uma LLM. Um gate verdadeiramente deterministico precisa de análise sintática, não regex.
-
-### 6. GATE-0: O Gate que Não Existe
-
-**Zero** relatórios contêm "HALLUCINATED", "Title Mismatch", "fabricated", ou "does not correspond" em seus `03-source-verification.md`. Isso pode significar:
-
-- **(A)** Nenhum sub-agente fabricou URLs (improvável — a taxa de alucinação do Flash é conhecida)
-- **(B)** O GATE-0 nunca foi executado (mais provável — não existe no pipeline atual)
-- **(C)** Foi executado mas não encontrou problemas (possível para fontes de código local)
-
-A ausência de detecção não é evidência de ausência de fabricação. É evidência de ausência de verificação.
-
-### 7. Coverage: A Métrica Fantasma
-
-Apenas **v1.4** reporta métricas de chunking nos deep reads:
-- "Chunks processed: 1 of 1 (100% coverage)"
-- "Chunks processed: 1 of 1 (~30% coverage of relevant sections)"
-
-Nenhum outro relatório reporta coverage. Deep reads de código (v08, v1.0, v1.5, v1.7) processam arquivos inteiros — coverage efetivamente 100%, mas não documentada. Deep reads de papers são seletivos (páginas 1-5) com coverage implícita de 15-30%, mas não declarada.
+**Mitigação real:** O prompt hardening (sub-agente verifica antes de reportar)
+é a defesa mais forte, porque atua na origem. Mas se o sub-agente Flash alucinar
+um ID e depois `fetch_url` nele retornar 404, ele deve excluí-lo. Se ele alucinar
+um ID que por acaso existe (paper diferente), só o GATE-0 pega.
 
 ---
 
-## Padrões de Qualidade por Tipo de Fonte
+### Falha 2: Fontes não verificadas (19/25 "ACCESSIBLE inferred")
 
-| Tipo de fonte | Processamento típico | Qualidade | Viés |
-|--------------|---------------------|-----------|------|
-| Código nux local | `read_file` ou `grep_files` completo | **Alta** — V-grade real, linha exata | Viés de confirmação (código próprio) |
-| Research reports internos | `read_file` do sumário | **Alta** — V-grade de documento interno | Cita a si mesmo |
-| Código OSS clonado | `grep_files` + `read_file` | **Alta** — E-grade com commit hash | — |
-| PDFs no bibliography/ | `read_file` seletivo (páginas 1-5) | **Média** — parcial, sem chunking | Só cobre introdução |
-| Papers arXiv com HTML | `rlm_open(url=...)` chunking | **Média** — cobertura variável | — |
-| Papers com paywall | Apenas abstract/snippet | **Baixa** — I-grade, 2 hops de paráfrase | Viés de acessibilidade |
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Categoria "inferred" | Existia e era usada livremente | Abolida dos templates |
+| **Persiste?** | — | **Sim, por omissão** |
 
----
+**Por que:** O template agora força o orquestrador a escolher ACCESSIBLE,
+UNVERIFIABLE, HALLUCINATED, ou EXCLUDED. Mas se ele não fizer `fetch_url`, a
+escolha é arbitrária. Ele pode:
+- Marcar como ACCESSIBLE sem verificar (confia na URL) → mesmo efeito do "inferred"
+- Marcar como UNVERIFIABLE sem tentar → perde fontes válidas
 
-## Recomendações Priorizadas (do plano para a skill)
+**Cenário de falha:** Orquestrador tem 40 fontes, `fetch_url` é lento (1.5-4s
+delay por request = 2-3 minutos). Decide verificar só as 10 primeiras. As outras
+30 ficam sem status ou são marcadas como UNVERIFIABLE por timeout implícito.
 
-Com base nos 10 data points, a prioridade de correção é:
-
-| # | Correção | Evidência dos relatórios | Impacto |
-|---|----------|------------------------|---------|
-| 1 | **SPEC-003 (PDF acquisition)** | v1.5 prova que PDF local funciona; v1.0/v2.0 mostram falha sem PDFs | Fecha o gap entre "abstract-only" e "full-text" |
-| 2 | **GATE-0 (Title Match)** | Zero detecções de alucinação — o gate não existe | Previne S6-like fabrications |
-| 3 | **Coverage→Confidence binding** | v2.0 W-04: snippets classificados como V-grade | Impede que snippets sejam tratados como evidência STRONG |
-| 4 | **Grade reclassification** | Snippet de busca ≠ V-grade; é I-grade com 2 hops | Corrige a taxonomia de evidência para fontes intermediárias |
-| 5 | **Iron Rule C sintático** | 12 hits no v1.0, maioria falsos positivos | Substituir grep cego por análise de contexto |
-| 6 | **Chunking obrigatório para T3/T4** | Só v1.4 reporta chunking; v1.5 lê só p.1-5 sem chunk | Garantir que "deep read" não significa "li a introdução" |
+**Mitigação real:** Nenhuma. O template constrange, mas não força. A única
+solução seria um script Python que itera sobre `02-source-inventory.md`, faz
+`fetch_url` em cada URL, e escreve `03-source-verification.md` — mas isso
+exigiria acesso programático ao `fetch_url`, que é um tool do modelo, não uma
+função Python.
 
 ---
 
-## Nota sobre o Pipeline do Nux vs Pipeline da Skill
+### Falha 3: Deep reads superficiais (W2: 3 claims, 26 linhas)
 
-Os relatórios do nux foram gerados com a skill, mas em um ambiente diferente:
-- Têm `bibliography/` populado com PDFs locais (ex: v1.5)
-- Têm `oss/` com clones de JSBSim, ArduPilot, code-house
-- Usam código local como fonte primária (reduz dependência de busca web)
-- Tiveram busca web rate-limited/blocked (DuckDuckGo + Bing)
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Coverage reportada | Opcional, raramente presente | Obrigatória no header do deep read |
+| Consequência de coverage baixa | Nenhuma — claims superficiais podiam ser STRONG | Coverage cap: <25% → SPECULATIVE, <50% → cap MODERATE |
+| **Persiste?** | — | **Parcialmente** |
 
-Isso criou um viés interessante: os relatórios são **melhores** para claims de código (E-grade com linha exata) e **piores** para claims de literatura (I-grade de snippets). A skill foi originalmente desenhada para pesquisa bibliográfica — mas o ambiente do nux a empurrou para ser uma ferramenta de análise de código. Isso funcionou razoavelmente bem, mas não é o caso de uso para o qual a skill foi otimizada.
+**Por que:** Se o orquestrador fizer um deep read superficial (só abstract +
+introdução) e reportar coverage honesta (ex: 25%), o cap limita o dano —
+SPECULATIVE não gera findings STRONG. OK, funciona.
+
+Mas se o orquestrador reportar coverage falsa (ex: 90% quando só leu 25%), o
+sistema é bypassado. Um orquestrador LLM pode fazer isso sem intenção maliciosa
+— basta interpretar "coverage" como "coverage das seções que eu li" em vez de
+"coverage do documento inteiro".
+
+**Cenário de falha:** Paper de 200KB, orquestrador lê introdução (10KB) +
+conclusão (5KB). Reporta: "Coverage: 100% (li introdução e conclusão, que contêm
+todos os claims relevantes)". Isso é 7.5% de coverage real, mas o orquestrador
+racionalizou como 100%.
+
+**Mitigação real:** O campo `Chunks processed: N of M` força o orquestrador a
+declarar quantos chunks processou. Se ele usou RLM chunking, o número de chunks
+é determinístico. Mas se ele usou T4 (seletiva) ou T2 (paginado), não há
+verificação externa. E mesmo com RLM, o orquestrador pode mentir sobre `M`.
+
+---
+
+### Falha 4: Snippets classificados como V-grade (v2.0 W-04)
+
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Regra | Inexistente | "Snippets e sumários não são V-grade" documentada |
+| Template | Sem indicação da fonte dos claims | Campo `Access method` obrigatório |
+| **Persiste?** | — | **Parcialmente** |
+
+**Por que:** A classificação V/P/I/M ainda é feita por LLM. Se o orquestrador
+classificar um snippet como V-grade, há uma inconsistência detectável:
+`Access method: snippets_only` + `Grade: V` → contradição. Mas não há um gate
+automático que cruza esses dois campos.
+
+**Cenário de falha:** O orquestrador faz deep read de um paper via snippets.
+No campo Access method escreve "snippets_only" (correto). Mas na tabela de
+claims, classifica C1 como "V" porque o snippet continha uma frase entre aspas
+que *parecia* verbatim. O orquestrador não percebe que há 2 hops de paráfrase
+entre o texto real do paper e o snippet.
+
+**Mitigação real:** A regra documentada + campo Access method são fortes. Mas
+a única garantia real seria um verificador pós-Stage-4 que lê o Access method
+de cada deep read e força todos os claims para I-grade se method for
+"snippets_only" ou "abstract_only".
+
+---
+
+### Falha 5: Iron Rule C falsos positivos (GATE-2 frágil)
+
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| GATE-2 | grep cego + inspeção LLM | **Idêntico — sem mudança** |
+| **Persiste?** | — | **Sim, integralmente** |
+
+**Por que:** Nenhuma correção foi aplicada ao GATE-2. Ele ainda faz grep de
+palavras proibidas e depende de inspeção manual por LLM. Verbatin quotes de
+papers ("The results confirm...") ainda disparam falsos positivos. Negações
+("not validated") ainda disparam falsos positivos.
+
+**Cenário de falha:** Relatório cita um paper: "Smith et al. (2024) demonstrated
+that..." — GATE-2 flag. Orquestrador inspeciona, vê que é citação legítima,
+marca PASS. Isso funciona, mas o falso positivo consome atenção e contexto.
+
+**Mitigação real:** Nenhuma. Esta frente ficou de fora do plano de implementação
+por ser a mais complexa (requer análise sintática, não regex).
+
+---
+
+### Falha 6: Sem PDF real (v1.0/v2.0: abstract-only)
+
+| Aspecto | Antes | Depois |
+|---------|-------|--------|
+| Aquisição de PDF | Inexistente | SPEC-003: arXiv PDF → Unpaywall → Sci-Hub |
+| **Persiste?** | — | **Sim, por falha de configuração ou omissão** |
+
+**Por que:** O código existe e funciona (smoke test passou). Mas:
+1. Requer `unpaywall_email` configurado. Se vazio → Unpaywall pulado → só arXiv PDF.
+2. Requer `allow_scihub=true` para Sci-Hub. Default false → só arXiv PDF + Unpaywall.
+3. Requer que o orquestrador extraia DOI/arXiv ID do `02-source-inventory.md`.
+4. Requer que o orquestrador execute o `code_execution` do Stage 3.1.
+5. Se a fonte não tem DOI nem arXiv ID → sem fallback possível.
+
+**Cenário de falha:** Paper da Springer com DOI. `unpaywall_email` configurado.
+Unpaywall retorna `is_oa: false` (paper fechado). `allow_scihub=false` (default).
+Resultado: `status: "unavailable"`. O orquestrador marca como UNVERIFIABLE para
+full-text e o deep read é feito sobre o abstract — exatamente como antes.
+
+**Mitigação real:** Para papers do arXiv, a cobertura melhorou (arXiv PDF é
+sempre tentado). Para papers com OA copy, melhorou (Unpaywall). Para papers
+fechados sem Sci-Hub, nada mudou.
+
+---
+
+## Novos Riscos Introduzidos pelas Correções
+
+### Risco A: Falsos positivos no GATE-0
+
+O critério de title match (≥50% palavras-chave) pode falhar quando:
+- O título na página HTML do arXiv usa formatação diferente (ex: lowercase forcado)
+- O título no `02-source-inventory.md` foi truncado pelo sub-agente
+- A página HTML retorna um título genérico ("arXiv.org e-Print archive") em vez do título do paper
+
+Uma fonte legítima marcada como HALLUCINATED é removida permanentemente.
+
+### Risco B: Coverage cap pune papers densos
+
+Um paper pode ter 80% de seu conteúdo relevante concentrado em 30% do texto
+(ex: a metodologia e resultados estão em 3 seções de 10 páginas cada, enquanto
+o paper tem 30 páginas). O orquestrador pode fazer deep reading seletivo dessas
+3 seções e reportar coverage 30% → cap MODERATE, mesmo tendo processado todo o
+conteúdo relevante.
+
+### Risco C: Complexidade acumulada
+
+Cada correção adiciona passos que o orquestrador deve executar. O Stage 3 agora tem:
+1. GATE-0 (fetch_url + title match para cada fonte)
+2. PDF acquisition (code_execution para cada fonte com DOI/arXiv)
+3. Credibility + RoB
+4. Preencher template com 5 colunas de status
+
+Para 30 fontes, isso é potencialmente 30 fetch_url + 15 code_execution +
+preenchimento de tabela. O orquestrador pode começar a pular etapas por
+fadiga de contexto.
+
+---
+
+## O Que Realmente Fecharia Cada Gap
+
+| Falha | Correção atual (constrangimento) | Correção real (enforcement) |
+|-------|----------------------------------|----------------------------|
+| URLs fabricadas | GATE-0 como instrução no SKILL.md | Script Python que lê 02-source-inventory.md, faz fetch_url em cada URL, compara títulos, e escreve 03-source-verification.md com coluna Title Match |
+| Fontes não verificadas | Categoria "inferred" abolida | Pré-GATE determinístico que bloqueia o Stage 4 se alguma fonte não tiver fetch_url registrado |
+| Deep reads superficiais | Coverage obrigatória no header | Pós-GATE que lê coverage_pct de cada deep read e força reclassificação dos claims se coverage < threshold |
+| Snippets como V-grade | Regra documentada + Access method | Pós-GATE que cruza Access method com Evidence grade: se method contém "snippet" ou "abstract", todos os claims são downgraded para I-grade |
+| Iron Rule C | grep + LLM (inalterado) | Pós-GATE com análise sintática: detectar se a palavra proibida está em verbatim quote (entre aspas + citação), negação, ou contexto de citação |
+| Sem PDF | SPEC-003 (code_execution manual) | Pré-GATE que, para cada fonte bibliography, tenta resolve_fulltext automaticamente e popula o campo pdf_path |
+
+**Todos os "corrections reais" compartilham uma propriedade:** são scripts
+Python determinísticos executados como gate, não instruções para o orquestrador.
+Isso exigiria que o executor do pipeline (DeepSeek TUI) permitisse hooks
+automáticos entre estágios — ou que a skill fosse reestruturada como um
+programa Python com o LLM como componente, em vez de um prompt com o LLM
+como executor.
+
+---
+
+## Veredito
+
+A versão corrigida é **significativamente melhor** que a original. Três das seis
+falhas têm mitigação real (não apenas documental): sub-agente agora verifica
+fontes, coverage cap limita dano de deep reads superficiais, SPEC-003 provê
+aquisição de PDF quando configurada.
+
+Mas a skill **ainda cometeria** versões atenuadas de todos os erros se executada
+por um orquestrador LLM descuidado, apressado, ou com contexto cheio. O problema
+arquitetural de fundo — um pipeline cujo executor é uma LLM não-determinística —
+não foi resolvido. Foi apenas cercado com mais instruções.
