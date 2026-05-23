@@ -117,3 +117,5 @@ Do NOT inline this content in SKILL.md.
 |---|---|---|
 | `{doi_url}` | Orchestrator | OSF registration DOI (if applicable) |
 | `{INTEGRATION_CHECKS}` | Config | `.deepseek/deepseek-research.toml` |
+| `{available_axes}` | Orchestrator | Human-readable list derived from `source_axes` (e.g. "web, codebase") |
+| `{search_engine}` | Orchestrator | Web search backend identifier (e.g. "Bing", "DuckDuckGo") |

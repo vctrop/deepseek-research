@@ -6,11 +6,11 @@ unit that accepts all parameters explicitly — no global state, no config file 
 The orchestrator interpolates variables before calling.
 
 Usage (in SKILL.md):
-    code_execution(code="""
+    code_execution(code='''
 import sys; sys.path.insert(0, '{SKILL_DIR}/scripts')
 from helpers import compute_sha256
 print(compute_sha256('{session_dir}/01-rq-brief.md'))
-    """)
+    ''')
 """
 
 from __future__ import annotations
