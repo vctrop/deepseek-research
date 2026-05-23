@@ -29,6 +29,9 @@ from prompts import (
     _build_code_prompt,
 )
 
+# Re-export resolve_fulltext para code_execution
+from fulltext import resolve_fulltext  # noqa: F401
+
 
 def resolve_placeholders(template_text: str, skill_dir: str = "", session_slug: str = "") -> str:
     """Preencher placeholders computáveis em uma string de template.

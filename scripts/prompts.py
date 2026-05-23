@@ -54,13 +54,28 @@ For the main topic of this RQ, run at least:
 
 {negative_block}
 
+## MANDATORY: Verify every source before including it
+For each source you plan to include in your results, you MUST:
+1. `fetch_url` on the source URL to confirm it exists and returns HTTP 200.
+2. Read enough content to confirm the title matches what you are reporting.
+3. If `fetch_url` fails (404, 403, timeout, or any non-200 status), do NOT include the source in your table. Report it in a separate "Attempted but inaccessible" section instead.
+4. Never fabricate, guess, or approximate URLs. Only include URLs you have successfully fetched and whose content you have read.
+
+## CRITICAL: Anti-hallucination rule
+- arXiv IDs are 7-digit numbers (e.g., 2407.16833). If you are unsure of an ID, fetch the URL to verify it returns the expected paper. arXiv abstract pages are at `https://arxiv.org/abs/{id}`.
+- Never generate an arXiv ID from memory or by analogy — only use IDs you have seen in `web_search` results or successfully fetched URLs.
+- If `web_search` returns a snippet with a title but no clear URL, run a follow-up search to find the URL. Do not guess.
+- If you cannot verify a source, do not include it. Prefer fewer verified sources over more unverified ones.
+
 ## Output contract
 1. Markdown table: | Source ID | Title/Path | Type | Relevance (1-5) | Why relevant |
+   - The Title column MUST contain the EXACT title as it appears on the fetched page (copy-paste, do not paraphrase).
+   - The Path column MUST contain the EXACT URL you successfully fetched (copy-paste from the `fetch_url` result).
 2. Negative search results section with queries attempted and key findings.
+3. "Attempted but inaccessible" section for sources you tried to fetch but could not access (with the URL, HTTP status, and reason).
 
 ## MANDATORY: Write complete results to file
-Before responding, write your COMPLETE source table and negative search results
-to `/tmp/dsr-bibliography-results.md` using write_file. Inline response can be a summary."""
+Before responding, write your COMPLETE source table, negative search results, and inaccessible-sources section to `/tmp/dsr-bibliography-results.md` using write_file. Inline response can be a summary."""
 
 
 def _build_code_prompt(rq_text: str) -> str:

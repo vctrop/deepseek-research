@@ -117,15 +117,57 @@ PRISMA-style: "Identified: N → After dedup: M → Selected: P".
 **Output:** `03-source-verification.md`
 **Template:** `{SKILL_DIR}/templates/source-verification.md`
 
-1. Verificar acessibilidade de cada fonte.
-2. Classificar tipo (paper/código/doc) e primary/secondary/tertiary.
-3. Risk of bias (3 níveis: Low/Medium/High):
+### 3.0 Title Match Gate (GATE-0)
+
+Para cada fonte com URL no `02-source-inventory.md`:
+1. `fetch_url("{url}")` para verificar HTTP status.
+2. Extrair o título da página (primeiro `<h1>` ou `<title>`).
+3. Comparar com o título reportado pelo sub-agente:
+   - **Match:** fonte marcada como ACCESSIBLE.
+   - **Mismatch:** fonte marcada como HALLUCINATED — o sub-agente fabricou
+     uma URL que não corresponde ao conteúdo alegado. Remover da tabela de
+     fontes ativas e registrar no Title Mismatch log.
+   - **404/403/Timeout:** fonte marcada como UNVERIFIABLE.
+4. Fontes sem URL (arquivos locais, bibliography): usar `read_file` para
+   verificar existência e extrair título quando aplicável.
+5. **A categoria "ACCESSIBLE (inferred)" está abolida.** Toda fonte deve ser
+   verificada ativamente ou marcada como UNVERIFIABLE.
+
+### 3.1 Full-Text PDF Acquisition
+
+Para fontes bibliográficas (papers), tentar obter o PDF completo via cadeia de
+fallback SPEC-003:
+
+```
+code_execution(code='''
+import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import resolve_fulltext
+result = resolve_fulltext(
+    doi="{doi}",            # se disponível
+    arxiv_id="{arxiv_id}",  # se disponível
+    source_id="{source_id}",
+    output_dir="{session_dir}/pdfs/",
+    unpaywall_email="{unpaywall_email}",
+    allow_scihub={allow_scihub},
+)
+print(json.dumps(result))
+''')
+```
+
+Cadeia: arXiv PDF → Unpaywall API (requer `unpaywall_email` config) → Sci-Hub
+(requer `allow_scihub=true`). Se `pdf_path` retornado, usar `read_file` para
+extrair texto. Ver `references/pipeline-detail.md` §3.1 para detalhes.
+
+### 3.2 Credibility + Risk of Bias
+
+1. Classificar tipo (paper/código/doc) e primary/secondary/tertiary.
+2. Risk of bias (3 níveis: Low/Medium/High):
    - **Papers (4 perguntas):** acessibilidade, metodologia documentada, conflito
      de interesse, peer review do venue.
    - **Código (3 perguntas):** CI/tests passam, múltiplos contribuidores,
      usado/dependenciado por outros projetos.
    - Propagação worst-case.
-4. Ver `{SKILL_DIR}/references/risk-of-bias.md`.
+3. Ver `{SKILL_DIR}/references/risk-of-bias.md`.
 
 ---
 
@@ -156,11 +198,18 @@ PRISMA-style: "Identified: N → After dedup: M → Selected: P".
 ### 5.1 Synthesis
 
 1. Carregar todos os `deep-reads/{source_id}.md`.
-2. Cross-reference: dedup, convergência, contradição.
-3. **Adversarial thinking pass:** para cada finding, avaliar evidência contrária,
+2. **Coverage cap:** para cada fonte, extrair `coverage_pct` do header do deep read.
+   Aplicar o cap de confidence conforme tabela em `references/deep-reading.md` §Coverage → Confidence Binding:
+   - coverage ≥ 80% → permite HIGH
+   - 50–79% → cap MODERATE
+   - 25–49% → cap LOW
+   - < 25% → cap SPECULATIVE; claims só podem ser usados como corroboração
+   - coverage não reportada → cap LOW
+3. Cross-reference: dedup, convergência, contradição.
+4. **Adversarial thinking pass:** para cada finding, avaliar evidência contrária,
    independência de fontes, viés de seleção/publicação.
-4. Classificar: STRONG / MODERATE / WEAK.
-5. Cada finding cita ≥1 quote verbatim. Gerar `04-synthesis.md`.
+5. Classificar: STRONG / MODERATE / WEAK (respeitando o coverage cap).
+6. Cada finding cita ≥1 quote verbatim. Gerar `04-synthesis.md`.
 
 ### 5.2 Report
 

@@ -120,11 +120,90 @@ arquivos com matches.
 **Quem:** Orquestrador (Pro)
 **Output:** `03-source-verification.md`
 
-1. Para cada fonte em `02-source-inventory.md`:
-   a. Verificar acessibilidade: URL → `fetch_url`, arquivo → `read_file`.
-      Se 404/403/timeout → "UNVERIFIABLE".
-   b. Classificar tipo: paper / código / documentação / repositório.
-   c. Classificar como primary / secondary / tertiary.
+### 3.0 Title Match Gate (GATE-0)
+
+**Objetivo:** Detectar fontes cuja URL foi fabricada pelo sub-agente (ex: arXiv
+ID que não corresponde ao paper alegado). Toda fonte com URL DEVE ser verificada
+antes de ser considerada ACCESSIBLE.
+
+**Procedimento por fonte:**
+```
+Para cada fonte com URL:
+  1. fetch_url("{url}") — verificar HTTP status.
+  2. Extrair o título da página:
+     - HTML: primeiro <h1> ou <title>
+     - PDF (se arxiv.org/pdf/...): título da primeira página extraído
+  3. Comparar com o título reportado no 02-source-inventory.md:
+     a. Match (≥70% similaridade de palavras-chave): ACCESSIBLE
+     b. Mismatch (URL aponta para conteúdo diferente): HALLUCINATED
+        → Remover fonte da tabela ativa.
+        → Registrar em "## Title Mismatch Detection" com:
+           | Source ID | Reported URL | Actual content | Resolution |
+     c. 404/403/Timeout: UNVERIFIABLE
+  4. Fontes sem URL (arquivos locais, código): verificar via read_file.
+```
+
+**⚠ A categoria "ACCESSIBLE (inferred)" está abolida.** Se uma fonte não pôde
+ser verificada (ex: busca web rate-limited), ela é UNVERIFIABLE, não "inferred
+accessible". O orquestrador NÃO DEVE inferir acessibilidade com base em
+confiança no repositório (ex: "arxiv é confiável").
+
+### 3.1 Full-Text PDF Acquisition (SPEC-003)
+
+Para fontes com DOI ou arXiv ID, executar cadeia de fallback:
+
+```
+code_execution(code='''
+import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import resolve_fulltext
+result = resolve_fulltext(
+    doi="{doi}",
+    arxiv_id="{arxiv_id}",
+    source_id="{source_id}",
+    output_dir="{session_dir}/pdfs/",
+    unpaywall_email="{unpaywall_email}",
+    allow_scihub={allow_scihub},
+)
+print(json.dumps(result))
+''')
+```
+
+**Cadeia de fallback:**
+1. **arXiv PDF:** `GET https://arxiv.org/pdf/{id}.pdf` → salvar → `read_file`
+2. **Unpaywall API:** `GET https://api.unpaywall.org/v2/{doi}?email={email}`
+   → extrair `best_oa_location.url_for_pdf` → baixar PDF
+3. **Sci-Hub (opt-in):** `GET https://sci-hub.{domain}/{doi}` → extrair URL
+   do PDF do HTML → baixar PDF
+
+**Config necessária:**
+```toml
+# .deepseek/deepseek-research.toml
+unpaywall_email = "researcher@example.com"  # requerido para Unpaywall
+allow_scihub = false                         # default: off (legal gray area)
+scihub_domain = ""                           # auto-detect if empty
+```
+
+**Tratamento de bordas:**
+- 403/Cloudflare → `UNVERIFIABLE (bot protection)`
+- PDF > 50MB → skip, marcar `TOO_LARGE`
+- PDF scaneado → `read_file` retorna vazio → `FAILED — scanned PDF`
+- Captcha Sci-Hub → tentar próximo domínio; se todos falharem → `UNVERIFIABLE`
+
+**Resultado:**
+- `pdf_path` → usar `read_file(pdf_path)` no Stage 4 para extrair texto
+- `pdf_url` → registrar no source-verification para referência
+- `status: "unavailable"` → marcar fonte como `UNVERIFIABLE` para full-text
+  (abstract pode ainda ser acessível)
+
+**Evasão de detecção (bot):** `fulltext.py` usa headers de browser realista
+(Chrome 132 Linux), delay aleatório de 1.5-4.0s entre requests, e mantém
+timeout de 30s. Ver `scripts/fulltext.py` §Evasão de detecção.
+
+### 3.2 Credibility + Risk of Bias
+
+1. Para cada fonte verificada:
+   a. Classificar tipo: paper / código / documentação / repositório.
+   b. Classificar como primary / secondary / tertiary.
 
 2. Risk of bias (ver `{SKILL_DIR}/references/risk-of-bias.md`):
    - **Papers:** 4 perguntas.
@@ -133,8 +212,9 @@ arquivos com matches.
 
 3. Preencher template `source-verification.md`:
    - Verification Summary table.
-   - Credibility Matrix (source-level).
+   - Credibility Matrix (source-level) — coluna Status: ACCESSIBLE | UNVERIFIABLE | HALLUCINATED | EXCLUDED.
    - RoB Summary Table.
+   - **Title Mismatch Detection** (fontes HALLUCINATED).
    - Detailed RoB por fonte (se Some concerns ou High).
    - Unverifiable Sources.
    - Excluded Sources.
