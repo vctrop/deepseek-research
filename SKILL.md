@@ -30,12 +30,17 @@ completude estrutural, não verdade. Report final DEVE incluir Methodological No
 | `max_deep_reads` | `10` | Máx. fontes para deep reading (sujeito a saturação) |
 | `deep_reading` | `true` | Habilitar deep reading |
 | `oss_clone_dir` | `"oss/"` | Clone de repositórios (T5) |
+| `unpaywall_email` | `""` | Email para Unpaywall API (requerido para OA lookup; vazio = desabilitado) |
+| `allow_scihub` | `false` | Habilitar fallback Sci-Hub para papers sem OA copy (⚠ use por sua conta e risco) |
+| `scihub_domain` | `""` | Domínio Sci-Hub específico (auto-detecta se vazio) |
 
-Opcional: `.deepseek/deepseek-research.toml` com estas mesmas 7 variáveis.
+Opcional: `.deepseek/deepseek-research.toml` com estas mesmas 10 variáveis.
 Placeholders `{output_dir}`, `{date}-{slug}`, `{RQ}`, `{SKILL_DIR}`,
 `{bibliography_path}`, `{session_dir}`, `{oss_clone_dir}`, `{iso8601_utc}`,
-`{skill_git_hash}`, `{model_id}`, `{date}`, `{slug}` são interpolados pelo
+`{skill_git_hash}`, `{model_id}`, `{date}`, `{slug}`, `{unpaywall_email}`,
+`{allow_scihub}`, `{scihub_domain}` são interpolados pelo
 orquestrador. `{SKILL_DIR}` → diretório de instalação da skill.
+`{allow_scihub}` é interpolado como `True` ou `False` (Python literal).
 
 ## Quick Reference
 
@@ -142,13 +147,22 @@ fallback SPEC-003:
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
 from helpers import resolve_fulltext
+
+# O orquestrador interpola {allow_scihub} como True ou False.
+# Safe default False se placeholder não resolvido.
+_allow_scihub_raw = "{allow_scihub}"
+try:
+    allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
+except (KeyError, AttributeError):
+    allow_scihub = False
+
 result = resolve_fulltext(
     doi="{doi}",            # se disponível
     arxiv_id="{arxiv_id}",  # se disponível
     source_id="{source_id}",
     output_dir="{session_dir}/pdfs/",
     unpaywall_email="{unpaywall_email}",
-    allow_scihub={allow_scihub},
+    allow_scihub=allow_scihub,
 )
 print(json.dumps(result))
 ''')

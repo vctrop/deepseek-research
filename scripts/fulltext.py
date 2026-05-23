@@ -39,9 +39,7 @@ import re
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
-from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 # ── Evasão de detecção ──────────────────────────────────────────────
 
@@ -70,29 +68,39 @@ _SCI_HUB_DOMAINS = [
 # Timeout HTTP padrão (segundos)
 _HTTP_TIMEOUT = 30
 
+# Tamanho máximo de PDF aceito (50 MB)
+_MAX_PDF_BYTES = 50 * 1024 * 1024
+
 
 def _interrequest_delay():
     """Delay aleatório entre requests para evitar detecção de bot."""
     time.sleep(random.uniform(1.5, 4.0))
 
 
-def _http_get(url: str, headers: dict | None = None, timeout: int = _HTTP_TIMEOUT) -> tuple[int, bytes]:
-    """HTTP GET com headers de browser. Retorna (status_code, body_bytes)."""
+def _http_get(url: str, headers: dict | None = None, timeout: int = _HTTP_TIMEOUT) -> tuple[int, bytes, int]:
+    """HTTP GET com headers de browser. Retorna (status_code, body_bytes, content_length).
+
+    content_length é extraído do header Content-Length, ou 0 se ausente.
+    """
     if headers is None:
         headers = dict(BROWSER_HEADERS)
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, resp.read()
+            body = resp.read()
+            clen = int(resp.headers.get("Content-Length", 0))
+            return resp.status, body, clen
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        body = e.read()
+        clen = int(e.headers.get("Content-Length", 0)) if hasattr(e, "headers") else 0
+        return e.code, body, clen
     except urllib.error.URLError:
-        return 0, b""
+        return 0, b"", 0
 
 
 def _http_get_text(url: str, headers: dict | None = None, timeout: int = _HTTP_TIMEOUT) -> tuple[int, str]:
     """HTTP GET retornando texto decodificado."""
-    status, body = _http_get(url, headers=headers, timeout=timeout)
+    status, body, _clen = _http_get(url, headers=headers, timeout=timeout)
     text = ""
     try:
         text = body.decode("utf-8", errors="replace")
@@ -102,8 +110,18 @@ def _http_get_text(url: str, headers: dict | None = None, timeout: int = _HTTP_T
 
 
 def _download_binary(url: str, output_path: str, headers: dict | None = None) -> bool:
-    """Baixa conteúdo binário de uma URL para arquivo local. Retorna True em sucesso."""
-    status, body = _http_get(url, headers=headers)
+    """Baixa conteúdo binário de uma URL para arquivo local.
+
+    Verifica Content-Length antes do download; rejeita se > _MAX_PDF_BYTES.
+    Retorna True em sucesso.
+    """
+    status, body, content_length = _http_get(url, headers=headers)
+
+    # Verificar tamanho antes de salvar
+    effective_size = content_length if content_length > 0 else len(body)
+    if effective_size > _MAX_PDF_BYTES:
+        return False
+
     if status == 200 and body:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "wb") as f:
@@ -127,18 +145,25 @@ def _resolve_arxiv_pdf(arxiv_id: str, source_id: str, output_dir: str) -> dict |
     pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
     pdf_path = os.path.join(output_dir, f"{source_id}.pdf")
 
-    status, _body = _http_get(pdf_url)
+    status, body, content_length = _http_get(pdf_url)
     if status != 200:
         return None
 
-    if _download_binary(pdf_url, pdf_path):
-        return {
-            "status": "arxiv",
-            "pdf_path": pdf_path,
-            "pdf_url": pdf_url,
-            "method": "arxiv_pdf_direct",
-        }
-    return None
+    # Verificar tamanho antes de salvar
+    effective_size = content_length if content_length > 0 else len(body)
+    if effective_size > _MAX_PDF_BYTES:
+        return None
+
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+    with open(pdf_path, "wb") as f:
+        f.write(body)
+
+    return {
+        "status": "arxiv",
+        "pdf_path": pdf_path,
+        "pdf_url": pdf_url,
+        "method": "arxiv_pdf_direct",
+    }
 
 
 # ── Unpaywall API ───────────────────────────────────────────────────

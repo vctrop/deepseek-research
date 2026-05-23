@@ -133,12 +133,19 @@ Para cada fonte com URL:
   2. Extrair o título da página:
      - HTML: primeiro <h1> ou <title>
      - PDF (se arxiv.org/pdf/...): título da primeira página extraído
-  3. Comparar com o título reportado no 02-source-inventory.md:
-     a. Match (≥70% similaridade de palavras-chave): ACCESSIBLE
-     b. Mismatch (URL aponta para conteúdo diferente): HALLUCINATED
-        → Remover fonte da tabela ativa.
-        → Registrar em "## Title Mismatch Detection" com:
-           | Source ID | Reported URL | Actual content | Resolution |
+  3. Comparar com o título reportado no 02-source-inventory.md.
+     Critério de match: ≥50% das palavras com 5+ caracteres do título
+     reportado aparecem no título da página (case-insensitive, ignorando
+     stopwords: "a", "an", "the", "of", "in", "on", "to", "for", "and",
+     "with", "using", "via", "from"). Exemplo:
+       - Reportado: "ChatQA 2: Bridging the Gap to GPT-4"
+       - Página: "ChatQA 2: Bridging the Rag to GPT-4V"
+       - Palavras-chave do reportado: chatqa, bridging, gap (3 palavras)
+       - Match: "chatqa", "bridging" vs "chatqa", "bridging", "rag" → 2/3 = 67% → MATCH
+     a. Match: ACCESSIBLE.
+     b. Mismatch: HALLUCINATED — remover fonte da tabela ativa e registrar
+        em "## Title Mismatch Detection" com:
+        | Source ID | Reported URL | Actual content | Resolution |
      c. 404/403/Timeout: UNVERIFIABLE
   4. Fontes sem URL (arquivos locais, código): verificar via read_file.
 ```
@@ -156,13 +163,22 @@ Para fontes com DOI ou arXiv ID, executar cadeia de fallback:
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
 from helpers import resolve_fulltext
+
+# O orquestrador DEVE interpolar {allow_scihub} como True ou False.
+# Se não interpolado, usar False como safe default.
+_allow_scihub_raw = "{allow_scihub}"
+try:
+    allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
+except (KeyError, AttributeError):
+    allow_scihub = False  # placeholder não resolvido → safe default
+
 result = resolve_fulltext(
     doi="{doi}",
     arxiv_id="{arxiv_id}",
     source_id="{source_id}",
     output_dir="{session_dir}/pdfs/",
     unpaywall_email="{unpaywall_email}",
-    allow_scihub={allow_scihub},
+    allow_scihub=allow_scihub,
 )
 print(json.dumps(result))
 ''')
