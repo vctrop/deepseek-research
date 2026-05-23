@@ -5,13 +5,13 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 13 stages + adversarial checkpoint + 22 verification gates.
+Deep multi-source research pipeline: 14 stages + adversarial checkpoint + 22 verification gates.
 Deep reading (Stage 3.5) processes full source documents via RLM chunking,
 extracting claims with verbatim textual evidence for human-verifiable synthesis.
 
 **Epistemic scope:** This is a rapid evidence assessment pipeline, not a
 systematic review. All judgments (relevance, bias, evidence grading) are
-performed by LLM sub-agents. The 19 gates verify structural completeness,
+performed by LLM sub-agents. The 22 gates verify structural completeness,
 not truth. See `references/epistemic-limitations.md` for full documentation.
 Every final report MUST include an Epistemic Limitations section.
 Corpus vivo: web-discovered sources are persisted and reused cross-session.
@@ -22,14 +22,10 @@ Generic — no project-specific infrastructure dependencies.
 **Orchestrator (all inline stages):**
 `request_user_input`, `agent_open`, `agent_eval`, `handle_read`, `rlm_open`, `rlm_eval`, `rlm_configure`, `rlm_close`, `grep_files`, `read_file`, `write_file`, `exec_shell`, `web_search`, `fetch_url`, `checklist_write`, `checklist_update`, `validate_data`, `code_execution`
 
-**Stage 2 sub-agents (discovery):**
-`web_search`, `fetch_url`, `grep_files`, `read_file`, `file_search`, `rlm_open`, `rlm_eval`, `rlm_close`, `write_file`
+**Sub-agent tool lists (canonical):** See `references/subagent-prompts.md` for the authoritative tool list per sub-agent type. The SKILL.md lists below are a summary for quick reference; `subagent-prompts.md` is canonical.
 
-**Stage 2 sub-agent (opensource):**
-`web_search`, `fetch_url`, `write_file`
-
-**Stage 2.1 sub-agent (tiebreak):**
-`grep_files`, `read_file`, `file_search`, `write_file`
+**Stage 2 sub-agents (discovery + opensource + tiebreak):**
+`web_search`, `fetch_url`, `grep_files`, `read_file`, `file_search`, `write_file` (opensource also: `web_search`, `fetch_url`, `write_file`; tiebreak: `grep_files`, `read_file`, `file_search`, `write_file`)
 
 **Stage 3.5 sub-agents (deep reading — non-T5):**
 `rlm_open`, `rlm_eval`, `rlm_configure`, `rlm_close`, `read_file`, `fetch_url`, `handle_read`, `write_file`, `grep_files`
@@ -55,30 +51,30 @@ Generic — no project-specific infrastructure dependencies.
 
 ## Quick Reference
 
-| Resource | Path | When to load |
-|----------|------|-------------|
-| Configuration | `references/configuration.md` | Stage 1 (all sessions) |
-| Epistemology (evidence matrix, knowledge types, saturation, negative search, textual evidence) | `references/epistemology.md` | Stage 1, Stage 3, Stage 4 |
-| Deep reading (RLM chunking, evidence taxonomy, consistency checks) | `references/deep-reading.md` | Stage 3, Stage 3.5 (if `deep_reading != false`) |
-| Epistemic limitations (full disclosure) | `references/epistemic-limitations.md` | Stage 1, Stage 5 |
-| Pipeline detail (step-by-step instructions) | `references/pipeline-detail.md` | Each stage (per § ref) |
-| Placeholder resolution table | `references/placeholders.md` | Stage 1 (reference only) |
-| IRON RULE C (qualified language) | `references/iron-rule-c.md` | Stage 4 |
-| Anti-patterns | `references/anti-patterns.md` | Stage 1 (advisory) |
-| Error recovery | `references/error-recovery.md` | Any stage (on error) |
-| Model matrix + thinking budget | `references/model-matrix.md` | Before sub-agent dispatch |
-| Context budget + RLM thresholds | `references/context-budget.md` | Stage 2, Stage 3, Stage 4 |
-| Sub-agent prompts (incl. dsr-opensource, dsr-deep-read-t5) | `references/subagent-prompts.md` | Stage 2, Stage 3.5, Stage 4.5 |
-| Python helpers (SHA256, index ops, kappa, prompt builder, placeholder resolver, session state) | `scripts/helpers.py` | All stages (via `code_execution`) |
-| Auto-config bootstrapper | `scripts/bootstrap_config.py` | Stage 1 (if .toml missing) |
-| PRESS search strategy peer review | `references/press-checklist.md` | Stage 2.2 (web axis) |
-| Risk of Bias assessment (incl. opensource repository domains) | `references/risk-of-bias.md` | Stage 3 (if sources ≥1) |
-| Open-Source applicability decision template | `templates/opensource-decision.md` | Stage 1.7 |
-| Protocol registry (OSF/local) | `scripts/protocol_registry.py` | Stage 1.6 (if `protocol_registry != "none"`) |
-| Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` | Stage 4 (if quantitative synthesis) |
-| GRADE certainty framework (engineering adaptation — experimental) | `references/grade-framework.md` | Stage 4 (quantitative RQs) |
+| Resource | Path |
+|----------|------|
+| Configuration | `references/configuration.md` |
+| Epistemology (evidence matrix, knowledge types, saturation, negative search, textual evidence) | `references/epistemology.md` |
+| Deep reading (RLM chunking, evidence taxonomy, consistency checks) | `references/deep-reading.md` |
+| Epistemic limitations (full disclosure) | `references/epistemic-limitations.md` |
+| Pipeline detail (step-by-step instructions) | `references/pipeline-detail.md` |
+| Placeholder resolution table | `references/placeholders.md` |
+| IRON RULE C (qualified language) | `references/iron-rule-c.md` |
+| Anti-patterns | `references/anti-patterns.md` |
+| Error recovery | `references/error-recovery.md` |
+| Model matrix + thinking budget | `references/model-matrix.md` |
+| Context budget + RLM thresholds | `references/context-budget.md` |
+| Sub-agent prompts (incl. dsr-opensource, dsr-deep-read-t5) | `references/subagent-prompts.md` |
+| Python helpers (SHA256, index ops, kappa, prompt builder, placeholder resolver, session state) | `scripts/helpers.py` |
+| Auto-config bootstrapper | `scripts/bootstrap_config.py` |
+| PRESS search strategy peer review | `references/press-checklist.md` |
+| Risk of Bias assessment (incl. opensource repository domains) | `references/risk-of-bias.md` |
+| Open-Source applicability decision template | `templates/opensource-decision.md` |
+| Protocol registry (OSF/local) | `scripts/protocol_registry.py` |
+| Meta-analysis engine (DerSimonian-Laird, forest plot) | `scripts/meta_analysis.py` |
+| GRADE certainty framework (engineering adaptation — experimental) | `references/grade-framework.md` |
 
-**Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
+Each reference is loaded by the pipeline at the stage(s) documented in `pipeline-detail.md`. **Templates** live in `{SKILL_DIR}/templates/`. Load with `read_file` at the start of each stage. Never inline template content in SKILL.md.
 
 ---
 
@@ -191,8 +187,18 @@ Key decisions: Scores RQ against 6 criteria. RECOMMEND if ≥ 6. Penalty of -2 i
 **Config vars:** `source_axes`, `dual_screening`, `agreement_threshold`
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 2
+> **Sub-agent prompts:** `references/subagent-prompts.md` §Stage 2
 
-Key decisions: keyword extraction (via code_execution, never shell), parallel dispatch (bibliography + web + code + opensource), mandatory negative search queries, code reference extraction from papers (before dedup), saturation declaration. Opensource axis searches GitHub, GitLab, and package registries for implementations, benchmarks, and libraries.
+**Dispatch pattern (all sub-agents):**
+```
+1. code_execution → helpers.build_subagent_prompt('dsr-web', rq_text='{RQ_TEXT}', main_topic='{main_topic}', topics='{topics}')
+2. agent_open(name="dsr-web", model="deepseek-v4-flash", allowed_tools=[...], prompt=<output from step 1>)
+3. agent_eval(agent_id="...", block=true, timeout_ms=180000)
+4. read_file("/tmp/dsr-web-results.md")  # full results, no truncation
+```
+Sub-agents MUST write complete output to `/tmp/dsr-{axis}-results.md` before responding. The orchestrator reads these files after `agent_eval` — never rely on the inline response which may be truncated.
+
+Key decisions: keyword extraction (via code_execution, never shell), topic extraction for per-topic negative queries, parallel dispatch (bibliography + web + code + opensource), mandatory negative search queries, saturation declaration.
 
 ---
 
@@ -318,18 +324,18 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16/20/21/22 failure
 | GATE-1 | File integrity — all expected outputs exist and are non-empty | Always |
 | GATE-2 | Session index — slug recorded | Always |
 | GATE-3 | IRON RULE C — no bare unqualified claims | Always |
-| GATE-4 | Integration checks — project-specific (optional) | If `$INTEGRATION_CHECKS` set |
-| GATE-5 | Persistence manifest integrity | If bibliography axis active |
+| GATE-4 | Integration checks — project-specific (optional) | If `integration_checks` non-empty |
+| GATE-5 | Persistence manifest integrity | If `"bibliography"` in `source_axes` |
 | GATE-6 | Corpus index validity | If `persist_sources == true` |
 | GATE-7 | Unindexed files check (informational) | If `persist_sources == true` |
-| GATE-8 | PRISMA + PRESS compliance (thresholds: 80%/50%) | Always (web axis) |
+| GATE-8 | PRISMA + PRESS compliance (thresholds: 80%/50%) | If `"web"` in `source_axes` |
 | GATE-9 | Risk of Bias completeness — every source rated | If sources ≥ 1 |
 | GATE-10 | Inter-rater reliability — κ reported | If `dual_screening == true` |
 | GATE-11 | Protocol registration recorded | If `protocol_registry != "none"` |
 | GATE-12 | Meta-analysis self-test — exit code 0 | If `meta_analysis != "never"` |
-| GATE-13 | GRADE completeness — every K-finding rated | Quantitative RQs |
+| GATE-13 | GRADE completeness — every K-finding rated | If RQ type is predictive or causal |
 | GATE-14 | Sensitivity flagging — leave-one-out, fail-safe N | If meta-analysis ran |
-| GATE-15 | Output format completeness — all 5 output files | Always |
+| GATE-15 | Output format completeness — all 4 output files (5 if data supplement generated) | Always |
 | GATE-16 | Stakeholder review output present | If `stakeholder_review == true` |
 | GATE-17 | Living review cadence — surveillance date | If `living_review == true` |
 | GATE-18 | Textual evidence + human verifiability | If `deep_reading != false` |

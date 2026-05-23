@@ -14,6 +14,28 @@ to keep the main skill body under 400 lines.
 Stages are executed in this sequence (pipeline-detail.md sections follow
 this order; stage numbering reflects logical grouping, not execution order):
 
+| Exec # | Stage ID | Description |
+|--------|----------|-------------|
+| 1 | Stage 1 | RQ Formulation |
+| 2 | Stage 1.7 | Open-Source Applicability Decision |
+| 3 | Stage 1.6 | Protocol Finalize |
+| 4 | Stage 1.5 | Local Corpus Triage |
+| 5 | Stage 2 | Source Discovery |
+| 6 | Stage 2.1 | Reconciliation |
+| 7 | Stage 2.2 | PRESS Review |
+| 8 | Stage 2.5 | Persistence |
+| 9 | Stage 3 | Source Verification |
+| 10 | Stage 3.5 | Deep Source Reading |
+| 11 | Stage 4 | Synthesis |
+| 12 | Stage 4.5 | Devil's Advocate Checkpoint |
+| 13 | Stage 4.6 | Stakeholder Review |
+| 14 | Stage 5 | Terminal Report |
+| 15 | Close | Verification (22 gates) |
+
+**Rationale:** Stages 1.5-1.7 are "Stage 1 sub-stages" (planning), Stages 2.1-2.5 are
+"Stage 2 sub-stages" (discovery), and Stage 3.5 is a Stage 3 sub-stage (deep reading).
+The decimal numbering groups them logically even though execution order differs.
+
 ```
 Stage 1   (RQ Formulation)
   ↓
@@ -43,12 +65,12 @@ Stage 4.6 (Stakeholder Review) — conditional: stakeholder_review == true
   ↓
 Stage 5   (Terminal Report)
   ↓
-Close     (Verification — 19 gates)
+Close     (Verification — 22 gates)
 ```
 
 **Checklist ID notes:**
-- `id=14` is used for: Stage 1.7 output (always runs), Stage 2.6 Code Reference Extraction (inline sub-step of Stage 2), and Close Verification. These are independent — each runs in a different phase and the id is re-checked at its respective point.
-- `id=15` is used for Stage 2.6 Code Reference Extraction (sub-step within Stage 2).
+- `id=14` is used for: Stage 1.7 (Open-Source Decision) and Close Verification. These run at opposite ends of the pipeline — Stage 1.7 sets it to `completed` early, Close reopens it as `in_progress` then `completed`. The dual-use is intentional to keep the checklist at 15 items.
+- `id=15` is used for Stage 2.6 (Code Reference Extraction), an inline sub-step of Stage 2.
 
 ---
 
@@ -136,19 +158,19 @@ No manual intervention needed for normal execution.
    checklist_write(todos=[
      {"content": "Stage 1: RQ Formulation", "status": "in_progress"},
      {"content": "Stage 1.6: Protocol Finalize", "status": "pending"},
-     {"content": "Stage 1.7: Open-Source Decision", "status": "pending"},
      {"content": "Stage 1.5: Local Corpus Triage", "status": "pending"},
      {"content": "Stage 2: Source Discovery", "status": "pending"},
      {"content": "Stage 2.1: Reconciliation", "status": "pending"},
      {"content": "Stage 2.2: PRESS Review", "status": "pending"},
-     {"content": "Stage 2.6: Code Reference Extraction", "status": "pending"},
      {"content": "Stage 2.5: Persistence", "status": "pending"},
      {"content": "Stage 3: Source Verification", "status": "pending"},
      {"content": "Stage 3.5: Deep Source Reading", "status": "pending"},
      {"content": "Stage 4: Synthesis", "status": "pending"},
      {"content": "Stage 4.5: Devil's Advocate", "status": "pending"},
      {"content": "Stage 4.6: Stakeholder Review", "status": "pending"},
-     {"content": "Stage 5: Terminal Report + Close", "status": "pending"}
+     {"content": "Stage 5: Terminal Report", "status": "pending"},
+     {"content": "Stage 1.7: Open-Source Decision + Close", "status": "pending"},
+     {"content": "Stage 2.6: Code Reference Extraction", "status": "pending"}
    ])
    ```
    Use `checklist_update(id, status)` for all subsequent updates — never `checklist_write` again.
@@ -242,6 +264,7 @@ No manual intervention needed for normal execution.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/source-inventory.md")`.
 2. Extract keywords from `01-rq-brief.md`: use `code_execution` with Python, never shell interpolation.
+2a. **Extract short topic names for negative queries:** Use `code_execution` to extract 3-6 short topic names (1-5 words each, lowercase, e.g. "thousand brain theory", "free energy principle") from the RQ. Pass as `topics="topic1,topic2,..."` to `build_subagent_prompt` for web and opensource axes. This enables per-topic negative queries instead of one giant blob.
 3. Identify active axes from `source_axes`. For each active axis, dispatch sub-agents.
 4. **Bibliography dispatch:** load sub-agent prompt spec from `references/subagent-prompts.md`. Use `helpers.build_subagent_prompt('dsr-bibliography', ...)`.
 5. **Web dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-web', ...)`.
@@ -318,6 +341,7 @@ No manual intervention needed for normal execution.
 > SKILL.md slim header has: Who, Output, Template.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/source-verification.md")`.
+1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
 2. For each source from Stage 2 inventory: fetch header or first 2KB to verify accessibility.
 2a. **Cross-check title against fetched content.** For each source, extract the `<title>` or first heading from the fetched content. Compare against the Stage 2 title using fuzzy matching (`difflib.SequenceMatcher` or equivalent). If similarity < 0.5: flag the source as "⚠ TITLE MISMATCH — possible hallucinated source." Re-dispatch discovery sub-agent for a replacement source. If similarity ≥ 0.5 but < 0.8: flag as "⚠ TITLE DRIFT — verify manually."
 3. Classify as ACCESSIBLE / INACCESSIBLE / PARTIAL (paywall, truncated).
@@ -389,6 +413,7 @@ No manual intervention needed for normal execution.
 > SKILL.md slim header has: Who, Output, Template.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/synthesis.md")`.
+1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
 2. Load IRON RULE C: `read_file("{SKILL_DIR}/references/iron-rule-c.md")`.
 3. Load epistemology for evidence strength matrix and textual evidence: `read_file("{SKILL_DIR}/references/epistemology.md")` §Textual Evidence.
 4. **Load deep read evidence.** If Stage 3.5 ran:
@@ -475,6 +500,7 @@ No manual intervention needed for normal execution.
 > SKILL.md slim header has: Who, Output, Template.
 
 1. Load report template: `read_file("{SKILL_DIR}/templates/report.md")`.
+1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
 2. Convert synthesis to final report format.
 3. Append Epistemic Limitations: `read_file("{SKILL_DIR}/references/epistemic-limitations.md")` §Report Integration.
 4. Append data supplement if numerical data was extracted. `read_file("{SKILL_DIR}/templates/data-supplement.json")`.
