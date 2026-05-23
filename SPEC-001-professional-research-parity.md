@@ -1,6 +1,6 @@
 ---
 target: deepseek-research skill v2.0
-status: draft
+status: superseded (by SPEC-002)
 created: 2026-05-21
 author: deepseek-tui (DeepSeek V4 Pro)
 skill_version_target: 2.0.0
