@@ -5,6 +5,19 @@ Called via `code_execution` from SKILL.md stages. Each function is a standalone
 unit that accepts all parameters explicitly — no global state, no config file reads.
 The orchestrator interpolates variables before calling.
 
+Functions:
+    resolve_placeholders     — auto-fill computable template placeholders
+    compute_sha256           — SHA256 hex digest of a file
+    write_session_state      — write/update .session-state.json for crash recovery
+    read_session_state       — read .session-state.json
+    get_resume_stage         — determine stage to resume from
+    query_index              — search local bibliography index
+    add_source_to_index      — add entry to bibliography index
+    update_session_index     — append to session index JSON
+    compute_cohens_kappa     — inter-rater reliability (Cohen's κ)
+    sort_deep_read_queue     — sort sources by deep read priority
+    build_subagent_prompt    — dispatch one of 10 prompt builders
+
 Usage (in SKILL.md):
     code_execution(code='''
 import sys; sys.path.insert(0, '{SKILL_DIR}/scripts')
@@ -21,6 +34,7 @@ import subprocess
 from pathlib import Path
 
 from prompts import (
+    _build_adversarial_prompt,
     _build_bibliography_prompt,
     _build_code_prompt,
     _build_da_prompt,
@@ -324,6 +338,49 @@ def compute_cohens_kappa(
     }
 
 
+def sort_deep_read_queue(sources_json: str) -> str:
+    """Sort deep read queue by priority. Returns JSON string with sorted sources.
+
+    Priority tiers:
+      1 = answers_SQ_directly    — directly answers a sub-question
+      2 = cross_theory_comparison — compares multiple theories/methods
+      3 = primary_empirical       — primary empirical evidence
+      4 = review_secondary        — review or secondary source
+      5 = code_reference          — open-source implementation
+
+    Within each tier: higher relevance score first.
+    Sources without a priority field default to tier 3.
+
+    Args:
+        sources_json: JSON array of source objects, each with at minimum:
+            {source_id, priority (optional), relevance (optional)}
+
+    Returns:
+        JSON string with sources sorted by (priority ASC, relevance DESC).
+    """
+    import json
+
+    sources = json.loads(sources_json)
+    if not isinstance(sources, list):
+        raise ValueError("sources_json must be a JSON array")
+
+    priority_order = {
+        "answers_SQ_directly": 1,
+        "cross_theory_comparison": 2,
+        "primary_empirical": 3,
+        "review_secondary": 4,
+        "code_reference": 5,
+    }
+
+    def sort_key(s):
+        p = priority_order.get(s.get("priority", ""), 3)
+        r = -int(s.get("relevance", 3))  # negative for descending
+        return (p, r)
+
+    sources.sort(key=sort_key)
+    return json.dumps(sources, indent=2, ensure_ascii=False)
+
+
 def build_subagent_prompt(
     template_name: str,  # "dsr-bibliography" | "dsr-web" | "dsr-code" | "dsr-da"
     **kwargs: str,
@@ -346,6 +403,7 @@ def build_subagent_prompt(
       - dsr-opensource: kwargs = {rq_text, main_topic (optional), topics (optional)}
       - dsr-deep-read-t5: kwargs = {source_id, repo_url, rq_text, skill_dir, session_dir, oss_clone_dir (optional)}
       - dsr-da: kwargs = {session_dir, skill_dir}
+      - dsr-adversarial: kwargs = {rq_text, included_sources_json, main_topic, topics (optional)}
       - dsr-grey: kwargs = {rq_text, main_topic, topics (optional)}
       - dsr-tiebreak: kwargs = {rq_text, bibliography_path, disagreement_list}
       - dsr-deep-read: kwargs = {source_id, source_path_or_url, source_title, rq_text, skill_dir, session_dir}
@@ -357,6 +415,7 @@ def build_subagent_prompt(
         "dsr-opensource": _build_opensource_prompt,
         "dsr-deep-read-t5": _build_deep_read_t5_prompt,
         "dsr-da": _build_da_prompt,
+        "dsr-adversarial": _build_adversarial_prompt,
         "dsr-grey": _build_grey_prompt,
         "dsr-tiebreak": _build_tiebreak_prompt,
         "dsr-deep-read": _build_deep_read_prompt,

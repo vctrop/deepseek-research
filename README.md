@@ -62,8 +62,8 @@ All variables have sensible defaults. See `references/configuration.md` for the 
 ## Architecture
 
 ```
-SKILL.md (381L)              → Orchestrator entry point
-  references/pipeline-detail.md (782L) → Step-by-step instructions
+SKILL.md (383L)              → Orchestrator entry point
+  references/pipeline-detail.md (789L) → Step-by-step instructions
     references/subagent-prompts.md     → Sub-agent dispatch specs (canonical)
     scripts/helpers.py (367L)          → Utilities, kappa, session state
     scripts/prompts.py (502L)          → 9 sub-agent prompt builders
@@ -76,18 +76,23 @@ SKILL.md (381L)              → Orchestrator entry point
 
 ## Pipeline Stages
 
-| # | Stage | Output |
-|---|-------|--------|
-| 1 | RQ Formulation | `01-rq-brief.md` |
-| 1.7 | Open-Source Decision | `01b-opensource-decision.md` |
-| 1.6 | Protocol Finalize | `protocol-registration.json` |
-| 2 | Source Discovery | `02-source-inventory.md` |
-| 3 | Source Verification | `03-source-verification.md` |
-| 3.5 | Deep Source Reading | `deep-reads/*.md` |
-| 4 | Synthesis | `04-synthesis.md` |
-| 4.5 | Devil's Advocate | `04a-devils-advocate.md` |
-| 5 | Terminal Report | `05-report.md` + plain-summary + decision-brief |
-| Close | Verification | 23 gates recorded in `MANIFEST.txt` |
+| # | Stage | Output | Condition |
+|---|-------|--------|-----------|
+| 1 | RQ Formulation | `01-rq-brief.md` | Always |
+| 1.7 | Open-Source Decision | `01b-opensource-decision.md` | Always |
+| 1.6 | Protocol Finalize | `protocol-registration.json` | `protocol_registry != "none"` |
+| 1.5 | Local Corpus Triage | `01a-local-corpus-triage.md` | bibliography axis + persist_sources |
+| 2 | Source Discovery | `02-source-inventory.md` | Always |
+| 2.1 | Reconciliation | appended to `02-source-inventory.md` | ≥2 axes returned sources |
+| 2.2 | PRESS Review | appended to `02-source-inventory.md` | web axis active |
+| 2.5 | Persistence | index update | `persist_sources == true` |
+| 3 | Source Verification | `03-source-verification.md` | sources ≥ 1 |
+| 3.5 | Deep Source Reading | `deep-reads/*.md` | `deep_reading != false` |
+| 4 | Synthesis | `04-synthesis.md` | Always |
+| 4.5 | Devil's Advocate | `04a-devils-advocate.md` | Always |
+| 4.6 | Stakeholder Review | `04b-stakeholder-review.md` | `stakeholder_review == true` |
+| 5 | Terminal Report | `05-report.md` + plain-summary + decision-brief | Always |
+| Close | Verification | 23 gates recorded in `MANIFEST.txt` | Always |
 
 ## Output Structure
 
@@ -96,17 +101,20 @@ research-reports/YYYY-MM-DD-slug/
 ├── MANIFEST.txt
 ├── 01-rq-brief.md
 ├── 01b-opensource-decision.md
-├── protocol-registration.json
+├── 01a-local-corpus-triage.md       # only if bibliography axis active
+├── protocol-registration.json       # only if protocol_registry != "none"
 ├── 02-source-inventory.md
 ├── 03-source-verification.md
-├── deep-reads/
+├── deep-reads/                      # only if deep_reading != false
 │   ├── _consolidation.md
 │   └── S{id}.md
 ├── 04-synthesis.md
 ├── 04a-devils-advocate.md
+├── 04b-stakeholder-review.md        # only if stakeholder_review == true
 ├── 05-report.md
 ├── 05-plain-summary.md
 ├── 05-decision-brief.md
+├── 05-data-supplement.json          # only if quantitative data extracted
 └── .session-state.json
 ```
 

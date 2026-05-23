@@ -13,6 +13,7 @@ Functions:
   _build_code_prompt         — dsr-code
   _build_opensource_prompt   — dsr-opensource
   _build_deep_read_t5_prompt — dsr-deep-read-t5
+  _build_adversarial_prompt  — dsr-adversarial
   _build_da_prompt           — dsr-da (Devil's Advocate)
   _build_tiebreak_prompt     — dsr-tiebreak
   _build_grey_prompt         — dsr-grey
@@ -113,7 +114,12 @@ Rules:
 - reused_local: every source read from local corpus. Only source_id.
 - negative_search: REQUIRED — report all negative queries and their findings.
 - If empty: emit [] (never omit the block).
-- The block MUST be the last element of the response."""
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE markdown source table and
+persistence_manifest JSON block to `/tmp/dsr-bibliography-results.md` using the
+write_file tool. This file will be read by the orchestrator after you finish.
+Your inline response can be a summary — the file must contain the full results."""
     return prompt
 
 
@@ -158,7 +164,12 @@ def _build_code_prompt(rq_text: str) -> str:
     return f"""Search project codebase for implementations, patterns, docs relevant to: {rq_text}
 
 ## Output REQUIRED format
-| Source ID | File:Line | Type (impl/doc/test/config) | Relevance (1-5) | Why relevant |"""
+| Source ID | File:Line | Type (impl/doc/test/config) | Relevance (1-5) | Why relevant |
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE source table to `/tmp/dsr-code-results.md`
+using the write_file tool. This file will be read by the orchestrator after you finish.
+Your inline response can be a summary — the file must contain the full results."""
 
 
 def _build_opensource_prompt(rq_text: str, main_topic: str = "", topics: str = "") -> str:
@@ -293,6 +304,102 @@ Write to `{session_dir}/deep-reads/{source_id}.md` using the template at {skill_
 Use T5, codebase_grep, and include the commit hash in the metadata header."""
 
 
+def _build_adversarial_prompt(
+    rq_text: str,
+    included_sources_json: str,
+    main_topic: str,
+    topics: str = "",
+) -> str:
+    """Build adversarial search prompt to find contrary evidence.
+
+    This sub-agent is dispatched AFTER source inventory closes and BEFORE
+    verification. Its job is to find evidence the main search may have missed
+    due to confirmation bias — the structural equivalent of red-teaming.
+    """
+    import json as _json
+
+    sources = _json.loads(included_sources_json)
+    source_titles = [
+        s.get("title", s.get("source_id", "?")) for s in sources[:10]
+    ]
+
+    titles_block = "\n".join(f"  - {t}" for t in source_titles)
+
+    if topics:
+        per_topic_neg = _build_per_topic_queries(topics, '"evidence against {topic}"')
+        per_topic_neg += "\n" + _build_per_topic_queries(topics, '"{topic} replication failure"')
+        per_topic_neg += "\n" + _build_per_topic_queries(topics, '"{topic} contradictory"')
+        per_topic_neg += "\n" + _build_per_topic_queries(topics, '"{topic} critique"')
+        adversary_queries_block = f"""## Adversarial Search Queries (per-topic)
+
+Execute ALL of these searches for EACH topic:
+{per_topic_neg}"""
+    else:
+        adversary_queries_block = f"""## Adversarial Search Queries
+
+Execute ALL of these contrary-evidence searches:
+- "evidence against {main_topic}"
+- "{main_topic} replication failure"
+- "{main_topic} contradictory evidence"
+- "{main_topic} critique\""""
+
+    return f"""## ADVERSARIAL SEARCH — Red-Team the Source Inventory
+
+Your mission: find evidence that contradicts, challenges, or complicates the
+current understanding of this research question. You are searching for what
+the main discovery sub-agents may have MISSED due to confirmation bias.
+
+Research question: {rq_text}
+
+## Sources already found (do NOT re-discover these)
+
+These {len(sources)} sources are already in the inventory:
+{titles_block}
+
+Your job is to find sources that:
+1. Contradict the findings these sources would be expected to support
+2. Present alternative explanations or competing theories
+3. Show replication failures for key methods/claims in this domain
+4. Critique the methodology used by the primary sources
+5. Contain null results or negative findings in this area
+
+## {adversary_queries_block.split(chr(10))[0]}
+
+{chr(10).join(adversary_queries_block.split(chr(10))[1:])}
+
+Also run these cross-cutting contrary searches:
+- "meta-analysis {main_topic} null result"
+- "systematic review {main_topic} inconclusive"
+- "debate {main_topic}"
+- "{main_topic} methodological limitations"
+
+## Output REQUIRED format
+
+### Adversarial Source Table
+| Source ID | Title/URL | Type (paper/blog/preprint/thesis) | Finding contradicts | Strength (1-5) | Why relevant |
+
+**Strength scale:**
+- 5: Directly refutes a key claim from the included sources
+- 4: Presents strong contradictory evidence or alternative explanation
+- 3: Documents methodological problems or replication failures
+- 2: Tangential critique or minor disagreement
+- 1: Mentioned but weak/imprecise contradictory evidence
+
+### Search Audit
+| Query | Results returned | Results used |
+
+### Adversarial Assessment
+Summarize the strongest contrary evidence found. If no contrary evidence
+was found for a particular topic, state "No contrary evidence found for {main_topic}."
+
+## MANDATORY: Write complete results to file
+Before responding, you MUST write your COMPLETE adversarial source table,
+search audit, and adversarial assessment to `/tmp/dsr-adversarial-results.md`
+using the write_file tool. This file will be read by the orchestrator after
+you finish. Your inline response can be a summary — the file must contain
+the full results."""
+
+
 def _build_da_prompt(session_dir: str, skill_dir: str) -> str:
     return f"""Read {session_dir}/04-synthesis.md.
 Also read {skill_dir}/references/iron-rule-c.md for the full bare claims list.
@@ -301,7 +408,23 @@ Write findings to {session_dir}/04a-devils-advocate.md using the template at {sk
 
 ## Checklist
 
-1. **Strongest contrary evidence:** For each key finding K1-KN, identify the strongest contrary evidence from any source. If none found, state "No contrary evidence identified from the source set."
+0. **Validate Contradiction Stress Test (mandatory — do this FIRST):**
+   The synthesis you read contains a "Contradiction Stress Test" section appended by
+   Phase A of this stage. For EACH claim in that table:
+   - Verify the "Contrary Evidence" column is accurate against the cited source.
+     If the source is from Stage 2.6 (ADV-S*), cross-check against
+     {session_dir}/01c-adversarial-results.md.
+   - Flag any claim where contrary evidence was MISSED (present in adversarial results
+     but absent from the Stress Test table).
+   - Validate the "Impact on Certainty" column: does the downgrade follow GRADE rules?
+     (e.g., MODERATE → LOW requires substantial contrary evidence, not minor disagreement).
+   - If >50% of claims are ⚠ UNCONTESTED, verify the disclaimer note exists and is accurate.
+     Check whether the uncontested rate signals genuine consensus or publication bias.
+
+1. **Strongest contrary evidence:** For each key finding K1-KN, identify the strongest
+   contrary evidence from any source BEYOND what the Contradiction Stress Test already
+   identified. If none found beyond the Stress Test, state "No additional contrary evidence
+   beyond the Contradiction Stress Test."
 
 2. **IRON RULE C compliance:** Scan every claim in 04-synthesis.md. Flag any claim that:
    - Uses "proves", "demonstrates", "establishes", "confirms" without qualification

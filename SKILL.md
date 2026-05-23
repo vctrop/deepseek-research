@@ -5,9 +5,10 @@ description: Multi-source research pipeline with adversarial review. RQ formulat
 
 # deepseek-research
 
-Deep multi-source research pipeline: 14 stages + adversarial checkpoint + 23 verification gates.
-Deep reading (Stage 3.5) processes full source documents via RLM chunking,
-extracting claims with verbatim textual evidence for human-verifiable synthesis.
+Deep multi-source research pipeline: 15 stages + adversarial checkpoint + 23 verification gates.
+Deep reading (Stage 3.5) uses a two-level approach: top 5 priority sources
+receive full RLM deep read with verbatim claim extraction; remaining sources
+receive a rapid inline skim. Synthesis can begin as soon as Level A completes.
 
 **Epistemic scope:** This is a rapid evidence assessment pipeline, not a
 systematic review. All judgments (relevance, bias, evidence grading) are
@@ -26,6 +27,9 @@ Generic — no project-specific infrastructure dependencies.
 
 **Stage 2 sub-agents (discovery + opensource + tiebreak):**
 `web_search`, `fetch_url`, `grep_files`, `read_file`, `file_search`, `write_file` (opensource also: `web_search`, `fetch_url`, `write_file`; tiebreak: `grep_files`, `read_file`, `file_search`, `write_file`)
+
+**Stage 2.6 sub-agent (adversarial search):**
+`web_search`, `fetch_url`, `write_file`
 
 **Stage 3.5 sub-agents (deep reading — non-T5):**
 `rlm_open`, `rlm_eval`, `rlm_configure`, `rlm_close`, `read_file`, `fetch_url`, `handle_read`, `write_file`, `grep_files`
@@ -64,7 +68,7 @@ Generic — no project-specific infrastructure dependencies.
 | Error recovery | `references/error-recovery.md` |
 | Model matrix + thinking budget | `references/model-matrix.md` |
 | Context budget + RLM thresholds | `references/context-budget.md` |
-| Sub-agent prompts (incl. dsr-opensource, dsr-deep-read-t5) | `references/subagent-prompts.md` |
+| Sub-agent prompts (incl. dsr-opensource, dsr-adversarial, dsr-deep-read-t5) | `references/subagent-prompts.md` |
 | Python helpers (SHA256, index ops, kappa, prompt builder, placeholder resolver, session state) | `scripts/helpers.py` |
 | Auto-config bootstrapper | `scripts/bootstrap_config.py` |
 | PRESS search strategy peer review | `references/press-checklist.md` |
@@ -162,6 +166,7 @@ and `{oss_clone_dir}` from the resolved configuration.
 **Output:** `01b-opensource-decision.md`
 **Template:** `{SKILL_DIR}/templates/opensource-decision.md`
 **Condition:** Run ALWAYS. Determines whether `opensource` axis should be active.
+If opensource is auto-added, record the override in MANIFEST.txt under `## Config Overrides`.
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 1.7
 
@@ -208,11 +213,12 @@ Key decisions: keyword extraction (via code_execution, never shell), topic extra
 
 **Who:** Orchestrator + tiebreak sub-agent (Flash)
 **Output:** Reconciliation section appended to `02-source-inventory.md`
-**Condition:** Run ONLY if `source_axes` has ≥2 axes that returned sources.
+**Condition:** Run ONLY if ≥2 axes returned at least 1 source in `02-source-inventory.md`.
+Count axes from the Discovery Summary table — Stage 1.7 may have added opensource dynamically.
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 2.1
 
-Key decisions: Cohen's κ from `helpers.manual_kappa()`, dual screening report, WARNING if κ < `agreement_threshold`.
+Key decisions: Cohen's κ from `helpers.compute_cohens_kappa()`, dual screening report, WARNING if κ < `agreement_threshold`.
 
 ---
 
@@ -220,7 +226,8 @@ Key decisions: Cohen's κ from `helpers.manual_kappa()`, dual screening report, 
 
 **Who:** Orchestrator (Pro — minimal thinking)
 **Output:** PRESS Review section appended to `02-source-inventory.md`
-**Condition:** Run ONLY if `"web"` is in `source_axes`.
+**Condition:** Run ONLY if web axis returned at least 1 source in `02-source-inventory.md`.
+Check the Discovery Summary table — row `web` must have `Sources found ≥ 1`.
 **Reference:** `references/press-checklist.md`
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 2.2
@@ -238,6 +245,19 @@ Key decisions: Cohen's κ from `helpers.manual_kappa()`, dual screening report, 
 
 ---
 
+### Stage 2.6: Adversarial Search
+
+**Who:** 1 adversarial sub-agent (Flash — mechanical search with inverted bias)
+**Output:** Adversarial sources injected into `02-source-inventory.md` under `## Adversarial Sources`
+**Condition:** Run ALWAYS — adversarial search is mandatory for all sessions.
+**Sub-agent spec:** `references/subagent-prompts.md` §Stage 2.6
+
+> **Detailed steps:** `references/pipeline-detail.md` §Stage 2.6
+
+Key decisions: red-team the source inventory before verification. Find contrary evidence, methodological critiques, replication failures, and alternative explanations. Sources with Strength ≥ 3 are added to source inventory with `[ADVERSARIAL]` marker and receive mandatory Level A deep read.
+
+---
+
 ### Stage 3: Source Verification
 
 **Who:** Orchestrator (Pro — think carefully about RoB assessment)
@@ -250,10 +270,10 @@ Key decisions: accessibility classification, primary/secondary/tertiary, RoB acr
 
 ---
 
-### Stage 3.5: Deep Source Reading
+### Stage 3.5: Deep Reading (Two-Level)
 
-**Who:** 1 sub-agent per source (Pro — think carefully about claim extraction and evidence grading), dispatched in parallel
-**Output:** `deep-reads/{source_id}.md` per source + `deep-reads/_consolidation.md`
+**Who:** Level A: 1 sub-agent per source (Pro — think carefully about claim extraction and evidence grading), dispatched in parallel. Level B: orchestrator inline rapid skim.
+**Output:** `deep-reads/{source_id}.md` (Level A) / `deep-reads/{source_id}-SKIM.md` (Level B) + `deep-reads/_consolidation.md`
 **Template:** `{SKILL_DIR}/templates/source-deep-read.md`
 **Condition:** Skip if `deep_reading == false` OR 0 sources after Stage 2.
 **Config vars:** `deep_reading`
@@ -262,7 +282,7 @@ Key decisions: accessibility classification, primary/secondary/tertiary, RoB acr
 > **Methodology:** `references/deep-reading.md`
 > **Sub-agent spec:** `references/subagent-prompts.md` §Stage 3.5
 
-Key decisions: document tier (T1/T2/T3/T4) per source, RLM chunking for T3/T4, claim extraction with V/P/I/M grades, internal consistency check, mathematical claim flagging.
+Key decisions: Two-level deep read (Level A: full RLM deep read for top 5 priority sources; Level B: rapid skim for remaining sources), document tier (T1/T2/T3/T4) per source, RLM chunking for T3/T4, claim extraction with V/P/I/M grades, internal consistency check, mathematical claim flagging. Stage 4 can begin as soon as Level A completes (continuous pipeline).
 
 ---
 
@@ -279,14 +299,16 @@ Key decisions: cross-source deduplication, evidence strength per claim (2×2 mat
 
 ---
 
-### Stage 4.5: Devil's Advocate Checkpoint
+### Stage 4.5: Contradiction Stress Test + Devil's Advocate Checkpoint
 
-**Who:** 1 sub-agent (Pro — think carefully about adversarial critique)
+**Who:** Phase A: Orchestrator (Pro — identify contrary evidence per claim). Phase B: 1 sub-agent (Pro — think carefully about adversarial critique).
 **Output:** `04a-devils-advocate.md`
 **Template:** `{SKILL_DIR}/templates/devils-advocate.md`
 
 > **Detailed steps:** `references/pipeline-detail.md` §Stage 4.5
 > **Sub-agent spec:** `references/subagent-prompts.md` §Stage 4.5
+
+Key decisions: Two-phase approach. Phase A (Contradiction Stress Test) identifies contrary evidence for each major claim across adversarial sources, negative searches, and deep read consistency checks. Phase B (Devil's Advocate) cross-references the stress test output for deeper critique.
 
 ---
 
@@ -317,7 +339,7 @@ Key output: Final report includes Epistemic Limitations section (mandatory), dec
 
 **Who:** Orchestrator (Pro — minimal thinking)
 
-Run all 22 gates on the session directory. Each gate is a structural integrity check.
+Run all 23 gates on the session directory. Each gate is a structural integrity check.
 Gates verify form, not truth — see `references/epistemic-limitations.md` §L2.
 Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16/20/21/22 failures must be resolved.
 
@@ -363,6 +385,7 @@ Emit PASS/FAIL/WARNING/UNVERIFIABLE per gate. GATE-1/2/3/5/8/16/20/21/22 failure
 ├── MANIFEST.txt                     # SHA256 + protocol DOI + stage completion log
 ├── 01-rq-brief.md
 ├── 01b-opensource-decision.md       # Stage 1.7 output (always)
+├── 01c-adversarial-results.md       # Stage 2.6 output (always)
 ├── protocol-registration.json       # only if protocol_registry != "none"
 ├── 01a-local-corpus-triage.md       # only if bibliography axis active
 ├── 02-source-inventory.md           # omitted if 0 sources

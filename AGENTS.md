@@ -3,12 +3,12 @@
 ## Architecture
 
 ```
-SKILL.md (380L)           → Orchestrator entry point. Slim. Never inline templates or
-  references/pipeline-detail.md (739L) → Step-by-step instructions per stage. Loaded by ref.
+SKILL.md (383L)           → Orchestrator entry point. Slim. Never inline templates or
+  references/pipeline-detail.md (789L) → Step-by-step instructions per stage. Loaded by ref.
     references/subagent-prompts.md     → Sub-agent dispatch specs + tool lists (canonical).
-    scripts/helpers.py (365L)          → Utility functions: SHA256, kappa, session state,
+    scripts/helpers.py (367L)          → Utility functions: SHA256, kappa, session state,
                                          placeholder resolution, prompt dispatcher.
-    scripts/prompts.py (496L)          → Sub-agent prompt builders (extracted from helpers).
+    scripts/prompts.py (502L)          → Sub-agent prompt builders (extracted from helpers).
     scripts/meta_analysis.py (478L)    → DerSimonian-Laird, forest plot, fail-safe N.
     scripts/grade.py (313L)            → GRADE certainty of evidence rating (Tier 2).
     scripts/living_review.py (240L)    → Living systematic review surveillance (Tier 3).

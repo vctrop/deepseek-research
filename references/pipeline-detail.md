@@ -24,13 +24,14 @@ this order; stage numbering reflects logical grouping, not execution order):
 | 6 | Stage 2.1 | Reconciliation |
 | 7 | Stage 2.2 | PRESS Review |
 | 8 | Stage 2.5 | Persistence |
-| 9 | Stage 3 | Source Verification |
-| 10 | Stage 3.5 | Deep Source Reading |
-| 11 | Stage 4 | Synthesis |
-| 12 | Stage 4.5 | Devil's Advocate Checkpoint |
-| 13 | Stage 4.6 | Stakeholder Review |
-| 14 | Stage 5 | Terminal Report |
-| 15 | Close | Verification (22 gates) |
+| 9 | Stage 2.6 | Adversarial Search |
+| 10 | Stage 3 | Source Verification |
+| 11 | Stage 3.5 | Deep Source Reading |
+| 12 | Stage 4 | Synthesis |
+| 13 | Stage 4.5 | Contradiction Stress Test + Devil's Advocate |
+| 14 | Stage 4.6 | Stakeholder Review |
+| 15 | Stage 5 | Terminal Report |
+| 16 | Close | Verification (23 gates) |
 
 **Rationale:** Stages 1.5-1.7 are "Stage 1 sub-stages" (planning), Stages 2.1-2.5 are
 "Stage 2 sub-stages" (discovery), and Stage 3.5 is a Stage 3 sub-stage (deep reading).
@@ -53,6 +54,8 @@ Stage 2.2 (PRESS Review) — conditional: web axis active
   ↓
 Stage 2.5 (Persistence) — conditional: persist_sources == true
   ↓
+Stage 2.6 (Adversarial Search)
+  ↓
 Stage 3   (Source Verification)
   ↓
 Stage 3.5 (Deep Source Reading) — conditional: deep_reading != false
@@ -65,12 +68,22 @@ Stage 4.6 (Stakeholder Review) — conditional: stakeholder_review == true
   ↓
 Stage 5   (Terminal Report)
   ↓
-Close     (Verification — 22 gates)
+Close     (Verification — 23 gates)
 ```
 
 **Checklist ID notes:**
-- `id=14` is used for: Stage 1.7 (Open-Source Decision) and Close Verification. These run at opposite ends of the pipeline — Stage 1.7 sets it to `completed` early, Close reopens it as `in_progress` then `completed`. The dual-use is intentional to keep the checklist at 15 items.
-- `id=15` is used for Stage 2.6 (Code Reference Extraction), an inline sub-step of Stage 2.
+- `id=15` is used for: Stage 1.7 (Open-Source Decision) and Close Verification.
+  These run at opposite ends of the pipeline — Stage 1.7 sets it to `completed` early
+  (exec #2), Close reopens it as `in_progress` then `completed` (exec #16).
+  The dual-use is intentional to keep the checklist at 16 items.
+
+  **Crash recovery note:** If `.session-state.json` shows id=15 as `completed` but
+  the orchestrator is resuming from an early stage, the orchestrator MUST check
+  whether Close has actually run: look for `## Gate Results` in `MANIFEST.txt`.
+  If absent, Close is still pending despite id=15 being marked completed by Stage 1.7.
+  Resume from the appropriate stage (not Close) and allow Stage 1.7 to re-run or
+  skip via idempotency check.
+- `id=16` is used for Stage 2.6 (Code Reference Extraction), an inline sub-step of Stage 2.
 
 ---
 
@@ -137,15 +150,95 @@ No manual intervention needed for normal execution.
 
 ---
 
+## Conditional Stage Skip Logic
+
+Several stages are conditional. When a stage's condition evaluates to `false`,
+the orchestrator MUST advance to the next executable stage instead of stalling.
+
+### Skip Table
+
+| Stage | Condition to run | Advance to | Checklist action |
+|-------|-----------------|------------|------------------|
+| Stage 1.5 | `"bibliography"` in `source_axes` AND `persist_sources == true` | Stage 2 | `checklist_update(id=3, status="completed")` |
+| Stage 2.1 | ≥2 axes returned ≥1 source each (count from Discovery Summary table in `02-source-inventory.md`, NOT from config `source_axes` — Stage 1.7 may have added opensource) | Stage 2.2 | `checklist_update(id=6, status="completed")` |
+| Stage 2.2 | Web axis returned ≥1 source (check Discovery Summary table row `web` in `02-source-inventory.md`, NOT config) | Stage 2.5 | `checklist_update(id=7, status="completed")` |
+| Stage 2.5 | `persist_sources == true` | Stage 2.6 | `checklist_update(id=8, status="completed")` |
+| Stage 3.5 | `deep_reading != false` AND sources ≥ 1 | Stage 4 | `checklist_update(id=10, status="completed")` |
+| Stage 4.6 | `stakeholder_review == true` | Stage 5 | `checklist_update(id=13, status="completed")` |
+
+### Skip Procedure (per stage)
+
+1. Read the stage's `**Condition:**` header line.
+2. Evaluate the condition against active config variables and pipeline state.
+3. **If condition is `false`:**
+   a. Document the skip reason in the stage output file (or in a minimal placeholder if
+      no output file would normally be produced by this stage).
+   b. `checklist_update(id=N, status="completed")` where N is the stage's checklist ID.
+   c. Write session state pointing to the advance-to stage:
+      ```
+      code_execution → helpers.write_session_state("{session_dir}",
+        current_stage="<advance-to>", last_completed_stage="<current>",
+        current_checklist_item=<next-checklist-id>)
+      ```
+   d. Continue to the advance-to stage.
+4. **If condition is `true`:** execute the stage normally.
+
+### Stage 2 (Source Discovery) Pre-flight
+
+Stage 2 can produce zero sources. This is NOT an error condition — it means
+no relevant sources were found by any axis. When this happens:
+
+- Stage 2 completes normally. `checklist_update(id=4, status="completed")`.
+- Stage 2.1 is skipped (≥2 axes failed — only 0-1 returned sources).
+- Stage 2.2 is skipped (web axis returned 0 sources).
+- The source-inventory records "0 sources found" and the pipeline continues.
+- In Stage 3: verify there are truly 0 sources. In Stage 4: produce a gap-only synthesis.
+
+**Impact on session state chain:** When Stage 2 produces 0 sources, the chain
+jumps from Stage 2 (checklist item 4) directly to Stage 3 (checklist item 9),
+skipping items 5-8. This is expected behavior — checklist items represent pipeline
+stages, not a linear counter.
+
+---
+
+## Stage 0: Environment Setup
+
+**Purpose:** Prepare the session environment before Stage 1 begins.
+This stage has no output file — it runs every session.
+
+1. **Create session directory:**
+   ```
+   exec_shell(command="mkdir -p {session_dir}")
+   ```
+
+2. **Proceed to Stage 1.**
+
+> **Note on placeholder resolution:** `resolve_placeholders()` from `helpers.py` is called
+> at each stage when loading templates (see Stage 1 step 4a, Stage 3 step 1a,
+> Stage 4 step 1a, Stage 5 step 1a). It auto-fills `{iso8601_utc}`, `{date}`,
+> `{slug}`, `{date}-{slug}`, and `{skill_git_hash}`. Stage-specific placeholders
+> (`{RQ_TEXT}`, `{rq_sha256}`, `{session_dir}`) are filled by the orchestrator
+> from stage output.
+
+---
+
 ## Stage 1: RQ Formulation
 
 > SKILL.md slim header has: Who, Output, Template, Config vars, References.
 > This section has the numbered steps.
 
-> **Idempotency rule (all stages):** Before executing any stage, check if its primary
-> output file already exists and is non-empty. If yes: `checklist_update(id=N, status="completed")`
-> and skip to the next stage. This makes resume safe and prevents overwriting completed work.
-> To force re-execution: delete the output file before starting the stage.
+### Pre-flight: Idempotency check
+
+Before executing any stage, verify whether it already has a valid output:
+
+```
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from stage_output import stage_is_complete; print(stage_is_complete('{session_dir}', '0N-filename.md'))")
+```
+- If `True`: `checklist_update(id=N, status="completed")` → skip to next stage.
+- If `False`: `checklist_update(id=N, status="in_progress")` → execute stage below.
+
+**To force re-execution:** delete the output file before starting the stage.
+**Mapping of stage → output filename:** See each stage's "Output" header in SKILL.md.
 
 1. Load config:
    a. Check for `.deepseek/deepseek-research.toml` in project root: `read_file(".deepseek/deepseek-research.toml")`.
@@ -162,12 +255,13 @@ No manual intervention needed for normal execution.
      {"content": "Stage 2: Source Discovery", "status": "pending"},
      {"content": "Stage 2.1: Reconciliation", "status": "pending"},
      {"content": "Stage 2.2: PRESS Review", "status": "pending"},
-     {"content": "Stage 2.5: Persistence", "status": "pending"},
-     {"content": "Stage 3: Source Verification", "status": "pending"},
-     {"content": "Stage 3.5: Deep Source Reading", "status": "pending"},
-     {"content": "Stage 4: Synthesis", "status": "pending"},
-     {"content": "Stage 4.5: Devil's Advocate", "status": "pending"},
-     {"content": "Stage 4.6: Stakeholder Review", "status": "pending"},
+      {"content": "Stage 2.5: Persistence", "status": "pending"},
+      {"content": "Stage 2.6: Adversarial Search", "status": "pending"},
+      {"content": "Stage 3: Source Verification", "status": "pending"},
+      {"content": "Stage 3.5: Deep Source Reading", "status": "pending"},
+      {"content": "Stage 4: Synthesis", "status": "pending"},
+      {"content": "Stage 4.5: Contradiction Stress Test + Devil's Advocate", "status": "pending"},
+      {"content": "Stage 4.6: Stakeholder Review", "status": "pending"},
      {"content": "Stage 5: Terminal Report", "status": "pending"},
      {"content": "Stage 1.7: Open-Source Decision + Close", "status": "pending"},
      {"content": "Stage 2.6: Code Reference Extraction", "status": "pending"}
@@ -244,7 +338,15 @@ No manual intervention needed for normal execution.
    - In interactive mode: use `request_user_input` to ask user. Record response.
 5. **If score ≥ 6 AND `"opensource"` already in `source_axes`:** No action needed.
 6. **If score < 6 (NOT RECOMMENDED):** Record decision. Skip opensource discovery.
-7. Fill template. `checklist_update(id=14, status="completed")`.
+7. Fill template. `checklist_update(id=15, status="completed")`.
+7a. **Record config override in MANIFEST (if opensource was auto-added):**
+    If step 4 auto-added `"opensource"` to `source_axes`, append to MANIFEST:
+    ```
+    read_file(path="{session_dir}/MANIFEST.txt")  # read existing content
+    write_file(path="{session_dir}/MANIFEST.txt",
+      content=<existing_content> + "\n## Config Overrides\n- opensource added to source_axes (Stage 1.7, score {score} ≥ 6)\n")
+    ```
+    Do NOT overwrite — append to the existing MANIFEST created in Stage 1.
 8. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="1.5", last_completed_stage="1.7", current_checklist_item=3)`.
 
 ---
@@ -269,14 +371,27 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header has: Who, Output, Template.
 
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `02-source-inventory.md`). If already valid, skip this stage.
+
 1. Load template: `read_file("{SKILL_DIR}/templates/source-inventory.md")`.
+1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`. This replaces `{iso8601_utc}`, `{date}`, `{skill_git_hash}`, `{slug}`.
 2. Extract keywords from `01-rq-brief.md`: use `code_execution` with Python, never shell interpolation.
-2a. **Extract short topic names for negative queries:** Use `code_execution` to extract 3-6 short topic names (1-5 words each, lowercase, e.g. "thousand brain theory", "free energy principle") from the RQ. Pass as `topics="topic1,topic2,..."` to `build_subagent_prompt` for web, opensource, and grey axes. This enables per-topic negative queries instead of one giant blob.
+2a. **Extract short topic names for negative queries:**
+    Use `code_execution` with the `topic_extractor` module:
+    ```
+    code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from topic_extractor import extract_topics, topics_to_csv; topics = extract_topics('''{RQ_TEXT}'''); result = topics_to_csv(topics); print(result if result else 'NO_TOPICS')")
+    ```
+    Store output as `{topics}`. If output is `NO_TOPICS`, omit `topics` param
+    from sub-agent dispatch (falls back to `main_topic` for negative queries).
+    When `topics` is available, pass as `topics='{topics}'` to
+    `build_subagent_prompt` for web, opensource, and grey axes.
+    This enables per-topic negative queries instead of one giant blob.
 3. Identify active axes from `source_axes`. For each active axis, dispatch sub-agents.
 4. **Bibliography dispatch:** load sub-agent prompt spec from `references/subagent-prompts.md`. Use `helpers.build_subagent_prompt('dsr-bibliography', ...)`.
 5. **Web dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-web', ...)`.
 6. **Code dispatch:** load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-code', ...)`.
-7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}')`.
+7. **Opensource dispatch (conditional):** If `"opensource"` in `source_axes`, load sub-agent prompt spec. Use `helpers.build_subagent_prompt('dsr-opensource', rq_text='{RQ_TEXT}', main_topic='{main_topic}', topics='{topics}')`.
 8. **Grey literature dispatch (conditional):** If `"grey"` in `source_axes`, load sub-agent prompt spec from `references/subagent-prompts.md` §Stage 2: dsr-grey. Use `helpers.build_subagent_prompt('dsr-grey', rq_text='{RQ_TEXT}', main_topic='{main_topic}', topics='{topics}')`. Grey literature targets: arxiv, techrxiv, ProQuest, Google Scholar, institutional repositories. Stricter relevance threshold: ≥4 to include.
 9. **Parallel dispatch:** all sub-agents in one turn.
 10. Wait for all sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=180000)` for each.
@@ -285,19 +400,19 @@ No manual intervention needed for normal execution.
    - Re-dispatch ONCE with reduced scope (fewer queries). If still times out, mark axis DEGRADED.
    - Continue with successful axes. Never block indefinitely.
 10a. **Read sub-agent output files:** After each sub-agent completes, read the full results:
-    - Web axis: `read_file("/tmp/dsr-web-results.md")`
-    - Code axis: `read_file("/tmp/dsr-code-results.md")`
-- Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
+     - Web axis: `read_file("/tmp/dsr-web-results.md")`
+     - Bibliography axis: `read_file("/tmp/dsr-bibliography-results.md")`
+     - Code axis: `read_file("/tmp/dsr-code-results.md")`
+     - Opensource axis: `read_file("/tmp/dsr-opensource-results.md")`
      - Grey axis: `read_file("/tmp/dsr-grey-results.md")`
-     - Bibliography axis: the persistence_manifest JSON block in the sub-agent response
-    - These files contain the COMPLETE source tables (sub-agent inline responses may be truncated).
+     - These files contain the COMPLETE source tables (sub-agent inline responses may be truncated).
 11. **Code Reference Extraction (conditional):** If `"bibliography"` in `source_axes` OR `"web"` in `source_axes`:
    a. Scan sub-agent outputs for repository URL patterns (github.com, gitlab.com, crates.io, pypi.org, npmjs.com, or "available at"/"code:"/"repository:" mentions).
    b. For each URL found: verify accessibility via `fetch_url`, classify relevance (1-5), record source of origin.
    c. Append code references to the source list before deduplication.
-   d. `checklist_update(id=15, status="completed")`.
+   d. `checklist_update(id=16, status="completed")`.
 12. Merge all `returned_sources` + code references with dedup_by_url. `checklist_update(id=4, status="completed")`.
-13. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.1", last_completed_stage="2", current_checklist_item=5)`.
+13. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.1", last_completed_stage="2", current_checklist_item=6)`.
 
 ---
 
@@ -305,15 +420,15 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header has: Who, Output, Condition.
 
-**Condition:** Run ONLY if `source_axes` has ≥2 axes that returned sources.
+**Condition:** Run ONLY if ≥2 axes returned at least 1 source each. Count from the Discovery Summary table in `02-source-inventory.md`, NOT from config `source_axes`. Stage 1.7 may have added opensource dynamically.
 
 1. Identify disagreements (one axis included a source another excluded). Extract source metadata.
 2. For each disagreement, dispatch tiebreak sub-agent.
 3. Load tiebreak spec from `references/subagent-prompts.md`. `helpers.build_subagent_prompt('dsr-tiebreak', ...)`.
 4. Wait for tiebreak sub-agents: `agent_eval(agent_id="...", block=true, timeout_ms=120000)` for each.
    On timeout: mark disagreement as UNRESOLVED, default to INCLUDE (inclusive screening).
-5. Build reconciliation matrix: agreement %, counts. If κ < `agreement_threshold`: WARNING. `checklist_update(id=5, status="completed")`.
-6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.2", last_completed_stage="2.1", current_checklist_item=6)`.
+5. Build reconciliation matrix: agreement %, counts. If κ < `agreement_threshold`: WARNING. `checklist_update(id=6, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.2", last_completed_stage="2.1", current_checklist_item=7)`.
 
 ---
 
@@ -321,12 +436,14 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header has: Who, Output, Template.
 
+**Condition:** Run ONLY if web axis returned at least 1 source in `02-source-inventory.md`. Check the Discovery Summary table — row `web` must have Sources found ≥ 1. Otherwise skip to Stage 2.5.
+
 1. Load PRESS checklist: `read_file("{SKILL_DIR}/references/press-checklist.md")`.
 2. For each web search query in `02-source-inventory.md`, evaluate: translation, operators, coverage, specificity, sensitivity. Rate ADEQUATE / INADEQUATE.
 3. Re-run rule: if ≥2 elements INADEQUATE for any query, re-run search with corrected query.
 4. Write PRESS Review section to `02-source-inventory.md` (append).
-5. `checklist_update(id=6, status="completed")`.
-6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.5", last_completed_stage="2.2", current_checklist_item=7)`.
+5. `checklist_update(id=7, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.5", last_completed_stage="2.2", current_checklist_item=8)`.
 
 ---
 
@@ -340,8 +457,78 @@ No manual intervention needed for normal execution.
 2. Index new sources: `index_new(bibliography_path, new_sources)`.
 3. Process reused_local: update sessions_used for each.
 4. Emit summary: "Corpus updated: {N} new, {M} reused."
-5. `checklist_update(id=7, status="completed")`.
-6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3", last_completed_stage="2.5", current_checklist_item=8)`.
+5. `checklist_update(id=8, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="2.6", last_completed_stage="2.5", current_checklist_item=5)`.
+
+---
+
+## Stage 2.6: Adversarial Search
+
+> **Who:** 1 adversarial sub-agent (Flash — mechanical search with inverted bias)
+> **Output:** Adversarial sources injected into `02-source-inventory.md` under `## Adversarial Sources` section
+> **Condition:** Run ALWAYS — adversarial search is mandatory for all sessions.
+> **Sub-agent spec:** `references/subagent-prompts.md` §Stage 2.6
+
+### Purpose
+
+Red-team the source inventory before verification. Find contrary evidence, methodological
+critiques, replication failures, and alternative explanations that the main discovery
+sub-agents may have missed due to confirmation bias.
+
+This stage runs AFTER source discovery closes (Stage 2.5) and BEFORE source verification
+(Stage 3), ensuring adversarial sources go through normal verification and deep read.
+
+### Procedure
+
+1. **Prepare included sources JSON:**
+   Extract all source IDs and titles from `02-source-inventory.md`. Build a JSON array:
+   ```json
+   [{"source_id": "S1", "title": "Title here"}, ...]
+   ```
+
+2. **Build adversarial prompt:**
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; import json; included = json.dumps([...]); print(build_subagent_prompt('dsr-adversarial', rq_text='{RQ_TEXT}', included_sources_json=included, main_topic='{main_topic}', topics='{topics}'))")
+   ```
+
+3. **Dispatch adversarial sub-agent:**
+   ```
+   agent_open(name="dsr-adversarial", model="deepseek-v4-flash",
+     allowed_tools=["web_search", "fetch_url", "write_file"],
+     prompt=<output from code_execution above>)
+   ```
+
+4. **Wait:** `agent_eval(agent_id="...", block=true, timeout_ms=180000)`
+
+5. **Read AND persist results:**
+   a. `read_file("/tmp/dsr-adversarial-results.md")`
+   b. **Persist to session directory:** `write_file("{session_dir}/01c-adversarial-results.md",
+      content=<output from read_file above>)`. This file is the durable source of truth
+      for adversarial evidence — it survives `/compact` and context resets.
+
+6. **Inject adversarial sources into main pipeline:**
+   - Any source with Strength ≥ 3: add to source inventory with marker `[ADVERSARIAL]`
+   - These sources go through normal Stage 3 verification + Stage 3.5 deep read
+   - The `[ADVERSARIAL]` marker ensures they receive **Level A deep read** (overrides the cap)
+   - Add to `02-source-inventory.md` under a new section: `## Adversarial Sources`
+
+7. **Handle "no contrary evidence found":**
+   If the sub-agent found no sources with Strength ≥ 3, record this in `02-source-inventory.md`:
+   ```markdown
+   ## Adversarial Sources
+   **No contrary evidence found.** The adversarial search returned no sources meeting the
+   Strength ≥ 3 threshold. This does NOT guarantee absence of contrary evidence — it may
+   reflect search limitations or publication bias favoring positive results.
+   ```
+
+8. `checklist_update(id=5, status="completed")`.
+
+9. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3", last_completed_stage="2.6", current_checklist_item=9)`.
+
+> **Rate-limit recovery:** After sub-agent returns, check the Search Audit table in `01c-adversarial-results.md` for blocked queries. If ≥2 queries were blocked AND no adversarial sources found:
+> - Wait 30 seconds (backoff). Re-dispatch sub-agent with blocked queries only.
+> - If still blocked after 2 retries, proceed with note: "adversarial search incomplete due to rate-limiting — contrary evidence derived from primary sources only."
+> - Record retry count in `01c-adversarial-results.md`.
 
 ---
 
@@ -349,9 +536,16 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header has: Who, Output, Template.
 
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `03-source-verification.md`). If already valid, skip this stage.
+
 1. Load template: `read_file("{SKILL_DIR}/templates/source-verification.md")`.
 1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
-2. For each source from Stage 2 inventory: fetch header or first 2KB to verify accessibility.
+2. For each source in `02-source-inventory.md`: fetch header or first 2KB to verify
+   accessibility. **This includes adversarial sources from Stage 2.6** (found under the
+   `## Adversarial Sources` section, marked `[ADVERSARIAL]`). Adversarial sources receive
+   the same verification treatment as discovery sources — accessibility check, source type
+   classification, and Risk of Bias assessment.
 2a. **Cross-check title against fetched content.** For each source, extract the `<title>` or first heading from the fetched content. Compare against the Stage 2 title using fuzzy matching (`difflib.SequenceMatcher` or equivalent). If similarity < 0.5: flag the source as "⚠ TITLE MISMATCH — possible hallucinated source." Re-dispatch discovery sub-agent for a replacement source. If similarity ≥ 0.5 but < 0.8: flag as "⚠ TITLE DRIFT — verify manually."
 3. Classify as ACCESSIBLE / INACCESSIBLE / PARTIAL (paywall, truncated).
 4. Classify source type: primary / secondary / tertiary (per epistemology §Primary vs Secondary).
@@ -370,61 +564,153 @@ No manual intervention needed for normal execution.
      b. **Result distribution:** Count positive vs. negative/null results. Flag if negative/null < 20% of total.
      c. **Funnel plot text description:** If ≥5 sources report same effect with variance, describe symmetry (e.g., "symmetric around pooled estimate" or "asymmetric — fewer small/negative studies").
      d. Record findings under `## Publication Bias Assessment` in `03-source-verification.md`.
-10. Fill template. `checklist_update(id=8, status="completed")`.
-11. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3.5", last_completed_stage="3", current_checklist_item=9)`.
+10. Fill template. `checklist_update(id=9, status="completed")`.
+11. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="3.5", last_completed_stage="3", current_checklist_item=10)`.
 
 ---
 
-## Stage 3.5: Deep Source Reading
+## Stage 3.5: Deep Reading (Two-Level)
 
 > SKILL.md slim header has: Who, Output, Template, Condition, Config vars.
 
 **Condition:** Skip if `deep_reading == false` OR 0 sources after Stage 2. For individual sources marked UNVERIFIABLE, skip deep reading for that source.
 
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `deep-reads/_consolidation.md`). If already valid, skip this stage.
+
+Deep reading now operates in two levels to guarantee 100% source coverage
+within bounded time:
+
+| Level | Trigger | Method | Depth | Output |
+|-------|---------|--------|-------|--------|
+| **A — Full** | Top 5 by priority, or all if ≤5 total | Sub-agent (Pro) with RLM | Complete claim extraction with verbatim quotes | `deep-reads/{id}.md` |
+| **B — Skim** | Remaining sources after top 5 (only when >5 total) | Inline by orchestrator | Abstract + key claims only | `deep-reads/{id}-SKIM.md` |
+
+### 3.5a — Classify sources into Level A / Level B
+
 1. Load deep reading methodology: `read_file("{SKILL_DIR}/references/deep-reading.md")`.
 2. Load sub-agent prompt spec: `read_file("{SKILL_DIR}/references/subagent-prompts.md")` §Stage 3.5.
-
-### Priority Queue (guarantees most important sources are deep-read first)
-
 3. Build the deep read queue from Stage 3 output (`03-source-verification.md` §Deep Read Queue).
-3a. **Sort by priority.** Assign each source a priority class and sort ascending:
-    - **P1 (answers SQ directly):** Source directly answers a specific sub-question (e.g., S6 directly challenges CBH evidence → SQ2). Re-rank to the top.
-    - **P2 (cross-theory comparison):** Source compares multiple theories (e.g., S4 compares FEP+PP).
-    - **P3 (primary empirical):** High-tier primary source with peer-reviewed empirical data (e.g., S8 in Nature Neuroscience).
-    - **P4 (review/secondary):** Review papers, book chapters, secondary synthesis.
-    - **P5 (code reference):** T5 source code repositories (OSS repos).
-    Sources at the same priority tie-break by relevance score (5 > 4 > 3).
-3b. **Record priority in queue.** Add a `Priority` column to the Deep Read Queue table in `03-source-verification.md`.
+4. **Sort by priority** via `sort_deep_read_queue()`:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import sort_deep_read_queue; import json; sources = json.loads('''{VERIFIED_SOURCES_JSON}'''); print(sort_deep_read_queue(json.dumps(sources)))")
+   ```
+5. **Classification rule:**
+   - **Level A:** First 5 sources from sorted queue (or all if total ≤ 5).
+   - **Level B:** Remaining sources (only applicable if > 5 sources total).
+   - Sources marked `[ADVERSARIAL]` (from Stage 2.6) are always Level A, overriding the cap.
+6. Record classification in `03-source-verification.md` under `## Deep Read Queue`: add `Level` column (A/B).
 
-### Parallel dispatch with batch cap
+### 3.5b — Dispatch Level A (Full Deep Read)
 
-4. **Calculate batch size.** MAX_CONCURRENT = 5 (hard cap to avoid dispatcher overload). If total sources > MAX_CONCURRENT, split into batches of MAX_CONCURRENT.
-5. **Batch loop:** For each batch:
-    a. **T5 sources in batch:** If batch contains T5 (source code) sources:
-       - Pre-flight check: verify repo accessible (`fetch_url` for repo URL).
-       - If already cloned (`oss/{org}_{repo}/` exists with .git): `git pull`, record new HEAD.
-       - If not cloned: note in sub-agent prompt that git clone is needed.
-       - Dispatch: `agent_open(name="dr-t5-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read-t5', ...))`.
-    b. **Non-T5 sources in batch:** Dispatch: `agent_open(name="dr-{source_id}", model="deepseek-v4-pro", allowed_tools=[...], prompt=build_subagent_prompt('dsr-deep-read', ...))`.
-    c. **Wait for batch:** `agent_eval(agent_id="...", block=true, timeout_ms=300000)` for each sub-agent in this batch.
-       **CRITICAL:** Deep reading can take 2-5 min per source. Use `timeout_ms=300000` (5 min).
-       On timeout: mark source as FAILED in consolidation. Re-dispatch ONCE with reduced scope.
-       If still times out: record "deep-read failed — timeout" in `_consolidation.md` and continue.
-    d. **Batch checkpoint:** Write `_consolidation.md` partial update after each batch completes. This ensures progress is preserved even if later batches fail.
-       ```python
-       code_execution → helpers.write_session_state("{session_dir}", deep_read_batch_progress="batch {N}/{total}", pending_sources=[...])
-       ```
-6. After all batches complete: final consolidation.
-7. Validate outputs: each `{session_dir}/deep-reads/{source_id}.md` must exist with `## Extracted Claims` section. Missing outputs → re-dispatch individually or mark as FAILED.
-8. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write final `_consolidation.md`.
-9. `checklist_update(id=9, status="completed")`.
-10. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4", last_completed_stage="3.5", current_checklist_item=10)`.
+1. For each Level A source, dispatch a sub-agent:
+   - **T5 (source code) sources:** `agent_open(name="dr-t5-{source_id}", model="deepseek-v4-pro", allowed_tools=["exec_shell","grep_files","read_file","write_file","fetch_url","handle_read"], prompt=build_subagent_prompt('dsr-deep-read-t5', source_id='{source_id}', repo_url='{repo_url}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}', session_dir='{session_dir}'))`.
+   - **Non-T5 sources:** `agent_open(name="dr-{source_id}", model="deepseek-v4-pro", allowed_tools=["rlm_open","rlm_eval","rlm_configure","rlm_close","read_file","fetch_url","handle_read","write_file","grep_files"], prompt=build_subagent_prompt('dsr-deep-read', source_id='{source_id}', source_path_or_url='{source_path_or_url}', source_title='{source_title}', rq_text='{RQ_TEXT}', skill_dir='{SKILL_DIR}', session_dir='{session_dir}'))`.
+
+2. **Batch cap:** MAX_CONCURRENT = 5.
+   ```
+   for batch in chunks(level_a_sources, 5):
+       dispatch all in batch via agent_open
+       wait for all via agent_eval(block=true, timeout_ms=300000)
+       write consolidation after batch
+   ```
+
+3. **Model:** Pro. Deep reading is a judgment task, not mechanical search.
+
+4. **On timeout** (300s per sub-agent): mark source as FAILED. Re-dispatch ONCE with reduced scope. If still times out: record "deep-read failed — timeout" in `_consolidation.md` and continue.
+
+5. **Output:** `{session_dir}/deep-reads/{source_id}.md` per `references/deep-reading.md` §Output Contract. Each file must contain `## Extracted Claims` with claim grades (V/P/I/M/E) and verbatim quotes.
+
+6. Write Level A consolidation checkpoint:
+   ```python
+   code_execution → helpers.write_session_state("{session_dir}", current_stage="3.5", deep_read_batch_progress="Level A complete", pending_sources_level_b=[...])
+   ```
+
+### 3.5c — Execute Level B (Rapid Skim)
+
+For each Level B source, the orchestrator performs a rapid inline skim:
+
+1. **Fetch content:**
+   - If URL: `fetch_url(url, format="markdown", max_bytes=50000)`
+   - If local file: `read_file(path, max_lines=200)`
+
+2. **Extract** (via `code_execution` or manual reading):
+   - Title
+   - Abstract-equivalent (first 2-3 paragraphs)
+   - 3-5 key claims
+   - Relevance to RQ (1-2 sentences)
+
+3. **Write reduced output** to `{session_dir}/deep-reads/{source_id}-SKIM.md`:
+   ```markdown
+   # {source_title} [SKIM]
+
+   **Skim reason:** Priority {priority}, batch {n}/{total}
+   **Skim date:** {date}
+
+   ## Key Claims (rapid extraction)
+   - Claim 1...
+   - Claim 2...
+   - Claim 3...
+
+   ## Relevance to RQ
+   {1-2 sentences}
+
+   ## Limitation
+   ⚠ This is a rapid skim — claims are NOT verified against the full text.
+   Full deep read recommended if this source becomes central to synthesis.
+   ```
+
+4. Mark in source inventory: `deep_read_level: SKIM`.
+
+### 3.5d — Continuous Pipeline (overlap with Stage 4)
+
+**Stage 4 (Synthesis) can begin as soon as Level A deep reads are complete.**
+Level B skims can complete during Stage 4.
+
+The synthesis must:
+- Use Level A deep reads as **primary evidence**.
+- Use Level B skims as **secondary/supporting evidence**, with explicit caveat.
+- Mark any source without any deep read as **⚠ EVIDENCE GAP** in synthesis.
+
+### Finalization
+
+1. After all Level A + Level B complete: final consolidation.
+2. Validate outputs: each expected deep read file must exist and be non-empty.
+3. Consolidate: count by status (COMPREHENSIVE/PARTIAL/MINIMAL/SKIM/INACCESSIBLE/FAILED). Summarize claims by grade (V/P/I/M/E). Write final `_consolidation.md`.
+4. `checklist_update(id=10, status="completed")`.
+5. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4", last_completed_stage="3.5", current_checklist_item=11, level_b_pending=false)`.
+
+> **⚠ Critical checkpoint:** Stage 3.5 is the most expensive stage and the most likely to be interrupted. Verify the state file was persisted:
+> ```
+> code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import read_session_state; state = read_session_state('{session_dir}'); print('OK' if state else 'WARNING: session state not persisted')")
+> ```
+> **Crash recovery at this checkpoint:** If the pipeline crashes after Stage 3.5, check `MANIFEST.txt` for `## Gate Results`. If absent, count `S*.md` files in `deep-reads/`. If ≥1 exist, deep reading is complete — resume from Stage 4 (Synthesis).
 
 ---
+
 
 ## Stage 4: Synthesis
 
 > SKILL.md slim header has: Who, Output, Template.
+
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `04-synthesis.md`). If already valid, skip this stage.
+
+0. **Crash recovery check (continuous pipeline):** If resuming Stage 4 after a crash
+   that may have occurred during the Level A / Stage 4 overlap (see Stage 3.5d):
+   a. Read session state: `code_execution` → `helpers.read_session_state("{session_dir}")`
+   b. If `level_b_pending` is `true` OR the key is absent while `deep_reading != false`
+      and total sources > 5:
+      - List existing SKIM files: `list_dir("{session_dir}/deep-reads/")`
+      - Identify Level B sources from `03-source-verification.md` §Deep Read Queue
+        (sources with `Level: B`).
+      - For each Level B source WITHOUT a corresponding `*-SKIM.md` file:
+        execute Level B rapid skim inline (see Stage 3.5c steps 1-4).
+      - After all missing skims complete: `code_execution` →
+        `helpers.write_session_state("{session_dir}", level_b_pending=false)`
+   c. Continue with normal Stage 4 execution. Sources without deep reads at this
+      point are marked ⚠ EVIDENCE GAP — this is expected for sources that were
+      genuinely unreachable, not for sources that were pending a skim.
 
 1. Load template: `read_file("{SKILL_DIR}/templates/synthesis.md")`.
 1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
@@ -501,14 +787,59 @@ No manual intervention needed for normal execution.
        ```
     d. Close the RLM session after synthesis: `rlm_close(name="synth-{slug}")`.
     e. Fallback: if RLM is unavailable or source count ≤10, process claims directly in the orchestrator context.
-15. Fill template. `checklist_update(id=10, status="completed")`.
-16. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.5", last_completed_stage="4", current_checklist_item=11)`.
+15. Fill template. `checklist_update(id=11, status="completed")`.
+16. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.5", last_completed_stage="4", current_checklist_item=12)`.
 
 ---
 
-## Stage 4.5: Devil's Advocate Checkpoint
+## Stage 4.5: Contradiction Stress Test + Devil's Advocate
 
 > SKILL.md slim header has: Who, Output, Template.
+
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `04a-devils-advocate.md`). If already valid, skip this stage.
+
+This stage now has TWO phases. Phase A is the Contradiction Stress Test (NEW).
+Phase B is the traditional Devil's Advocate review.
+
+### Phase A: Contradiction Stress Test
+
+**Purpose:** For each major claim in the draft synthesis, explicitly identify
+the strongest contrary evidence. Claims with no contrary evidence are flagged
+as "uncontested" — not necessarily wrong, but a limitation to disclose.
+
+1. Read draft synthesis: `read_file("{session_dir}/04-synthesis.md")`
+2. Extract all major claims (look for patterns: "X shows", "Y demonstrates",
+   "Z is effective", "evidence suggests", "results indicate").
+3. For EACH claim, search for contrary evidence across:
+   - Adversarial sources from Stage 2.6 (`{session_dir}/01c-adversarial-results.md`)
+   - Negative search results from Stage 2 sub-agent outputs
+   - Deep read internal consistency checks from Stage 3.5 outputs
+4. Append a "Contradiction Stress Test" section to `04-synthesis.md`:
+
+   ```markdown
+   ## Contradiction Stress Test
+
+   | # | Claim | Contrary Evidence | Source | Impact on Certainty |
+   |---|-------|------------------|--------|---------------------|
+   | 1 | {claim_text} | None found | — | ⚠ UNCONTESTED |
+   | 2 | {claim_text} | "Smith et al. (2023) failed to replicate..." | ADV-S1 | Downgrade MODERATE → LOW |
+   | 3 | {claim_text} | "Alternative explanation: the effect may be due to..." | deep-read S4 consistency check | Add caveat to claim |
+   ```
+
+5. **Rules:**
+   - ⚠ UNCONTESTED is NOT a badge of shame — many true claims lack published
+     contradictions. But it IS a limitation that must be disclosed.
+   - If >50% of claims are UNCONTESTED, add a note: "The majority of claims
+     in this synthesis lack published contradictory evidence. This may reflect
+     genuine consensus or publication bias favoring positive results."
+   - Claims with SUBSTANTIAL contrary evidence should be downgraded in the
+     GRADE certainty assessment.
+
+### Phase B: Devil's Advocate
+
+The Devil's Advocate now has access to the Contradiction Stress Test output
+and can cross-reference its own critique against already-identified contrary evidence.
 
 1. Load Devil's Advocate spec: `read_file("{SKILL_DIR}/references/subagent-prompts.md")` §Stage 4.5.
 2. Build prompt: `helpers.build_subagent_prompt('dsr-da', ...)`.
@@ -517,8 +848,9 @@ No manual intervention needed for normal execution.
    **CRITICAL:** Devil's Advocate review can take 1-3 min. Use `timeout_ms=180000` (3 min).
    On timeout: orchestrator applies Devil's Advocate checklist inline against `04-synthesis.md`.
 5. Read output: `read_file("{session_dir}/04a-devils-advocate.md")`.
-6. Apply corrections to `04-synthesis.md`. Sub-agent NEVER modifies `04-synthesis.md` directly. `checklist_update(id=11, status="completed")`.
-7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.6", last_completed_stage="4.5", current_checklist_item=12)`.
+6. Apply corrections to `04-synthesis.md`. Sub-agent NEVER modifies `04-synthesis.md` directly.
+7. `checklist_update(id=12, status="completed")`.
+8. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="4.6", last_completed_stage="4.5", current_checklist_item=13)`.
 
 ---
 
@@ -532,8 +864,8 @@ No manual intervention needed for normal execution.
 2. For each REVISE: ask what specific revision is needed.
 3. Document feedback and actions taken in the template.
 4. Apply feedback to `04-synthesis.md` before Stage 5.
-5. `checklist_update(id=12, status="completed")`.
-6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="5", last_completed_stage="4.6", current_checklist_item=13)`.
+5. `checklist_update(id=13, status="completed")`.
+6. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="5", last_completed_stage="4.6", current_checklist_item=14)`.
 
 ---
 
@@ -541,14 +873,17 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header has: Who, Output, Template.
 
+> **Pre-flight:** Apply the same idempotency check from Stage 1 (use `stage_is_complete`
+> with `05-report.md`). If already valid, skip this stage.
+
 1. Load report template: `read_file("{SKILL_DIR}/templates/report.md")`.
 1a. **Auto-resolve placeholders:** Use `code_execution` to call `helpers.resolve_placeholders(template_text, skill_dir="{SKILL_DIR}", session_slug="{date}-{slug}")`.
 2. Convert synthesis to final report format.
 3. Append Epistemic Limitations: `read_file("{SKILL_DIR}/references/epistemic-limitations.md")` §Report Integration.
 4. Append data supplement if numerical data was extracted. `read_file("{SKILL_DIR}/templates/data-supplement.json")`.
 5. No knowledge entity creation. Report is the final artifact.
-6. `checklist_update(id=13, status="completed")`.
-7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="close", last_completed_stage="5", current_checklist_item=14)`.
+6. `checklist_update(id=14, status="completed")`.
+7. **Session state:** `code_execution` → `helpers.write_session_state("{session_dir}", current_stage="close", last_completed_stage="5", current_checklist_item=15)`.
 
 ---
 
@@ -556,13 +891,29 @@ No manual intervention needed for normal execution.
 
 > SKILL.md slim header references this section for executable gate commands.
 
+### Crash Recovery Detection
+
+Before executing Close, check whether this session was resumed from a crash:
+
+1. Compare timestamps of deep read files vs synthesis files using Python (portable):
+   ```
+   code_execution(code="import os, glob, time; deep_reads = glob.glob('{session_dir}/deep-reads/S*.md'); synthesis = glob.glob('{session_dir}/04-synthesis.md'); dr_mtime = max(os.path.getmtime(f) for f in deep_reads) if deep_reads else 0; syn_mtime = os.path.getmtime(synthesis[0]) if synthesis else 0; gap_hours = (syn_mtime - dr_mtime) / 3600 if dr_mtime and syn_mtime else 0; print(f'gap_hours={gap_hours:.1f}')")
+   ```
+2. If `gap_hours > 1.0`, this session was resumed from a crash. Record in MANIFEST:
+   ```
+   ## Recovery
+   resumed_from_crash: true
+   sessions_used: 2
+   ```
+3. If single-session run, record `resumed_from_crash: false`.
+
 ### Auto-Run Procedure
 
-The orchestrator MUST execute all 22 gates systematically — never skip this stage.
+The orchestrator MUST execute all 23 gates systematically — never skip this stage.
 Gates verify structural completeness, not truth (see `references/epistemic-limitations.md` §L2).
 
-1. `checklist_update(id=14, status="in_progress")`.
-2. For each gate GATE-1 through GATE-22:
+1. `checklist_update(id=15, status="in_progress")`.
+2. For each gate GATE-1 through GATE-23:
    a. Execute the gate command(s) described below.
    b. Record result: PASS / FAIL / WARNING / UNVERIFIABLE / SKIP.
    c. If FAIL on a blocking gate (GATE-1, GATE-2, GATE-3, GATE-5, GATE-8, GATE-16, GATE-20, GATE-21, GATE-22):
@@ -573,7 +924,7 @@ Gates verify structural completeness, not truth (see `references/epistemic-limit
 3. After all gates: write final MANIFEST.txt with SHA256 of each output file.
 4. Cleanup temporary artifacts (see Cleanup section below).
 5. Delete `.session-state.json` (crash recovery no longer needed).
-6. `checklist_update(id=14, status="completed")`.
+6. `checklist_update(id=15, status="completed")`.
 
 ### Gate Results Format (in MANIFEST.txt)
 
@@ -587,6 +938,19 @@ Gates verify structural completeness, not truth (see `references/epistemic-limit
 | ... | ... | ... |
 ```
 
+### Config Overrides Section (in MANIFEST.txt)
+
+If any stage overrode config values (e.g., Stage 1.7 added opensource), document in a `## Config Overrides` section in MANIFEST.txt:
+
+```
+## Config Overrides
+| Override | Stage | Reason |
+|----------|-------|--------|
+| opensource added to source_axes | 1.7 | Score 8/12 ≥ 6 (auto-enabled) |
+```
+
+If no overrides occurred, write "None — config matched execution."
+
 ### Gate Details
 
 Each gate is a structural integrity check. Gates verify form, not truth —
@@ -599,7 +963,7 @@ export PERSIST_SOURCES="{persist_sources}"
 export PROTOCOL_REGISTRY="{protocol_registry}"
 export STAKEHOLDER_REVIEW="{stakeholder_review}"
 SESSION_DIR="{output_dir}/{date}-{slug}"
-expected="01-rq-brief.md 01b-opensource-decision.md MANIFEST.txt"
+expected="01-rq-brief.md 01b-opensource-decision.md 01c-adversarial-results.md MANIFEST.txt"
 [ "$PERSIST_SOURCES" = "true" ] && expected="$expected 01a-local-corpus-triage.md"
 [ "$PROTOCOL_REGISTRY" != "none" ] && expected="$expected protocol-registration.json"
 expected="$expected 02-source-inventory.md 03-source-verification.md 04-synthesis.md 04a-devils-advocate.md 05-report.md 05-plain-summary.md 05-decision-brief.md"
@@ -637,6 +1001,12 @@ exec_shell(command: "python3 {SKILL_DIR}/scripts/index_sources.py check-unindexe
 ```
 
 **GATE-8 — PRISMA + PRESS compliance.**
+**Condition:** Run ONLY if Stage 2.2 (PRESS Review) executed. If Stage 2.2 was skipped (web axis returned 0 sources), SKIP with note "no web sources to review."
+```
+# Pre-check: did Stage 2.2 execute?
+grep_files(pattern="PRESS Review", path="{session_dir}/02-source-inventory.md")
+```
+If no match: SKIP. If match, proceed with PRISMA/PRESS checks below.
 ```
 grep_files(pattern="PRISMA 2020 Flow Diagram", path="{session_dir}/02-source-inventory.md")
 ```
@@ -787,3 +1157,8 @@ If sources < 5: SKIP.
 ---
 
 **Cleanup note:** Temporary repository clones in `{oss_clone_dir}` are removed during Close (see Close: Verification, Auto-Run Procedure step 4). They persist only if `persist_sources == true`.
+Additionally, remove deep reading intermediate artifacts:
+```
+exec_shell(command="rm -f {session_dir}/deep-reads/*_raw.html {session_dir}/deep-reads/*.tmp 2>/dev/null")
+```
+These files (e.g., `S3_raw.html`) are intermediate artifacts from RLM chunking — not final outputs.

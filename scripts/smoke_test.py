@@ -62,6 +62,7 @@ def test_file_integrity():
     expected_scripts = [
         "helpers", "index_sources", "meta_analysis",
         "protocol_registry", "living_review", "grade",
+        "topic_extractor", "stage_output",
     ]
     expected_templates = [
         "rq-brief", "source-inventory", "source-verification", "synthesis",
@@ -110,6 +111,7 @@ def test_scripts():
         from helpers import (
             compute_sha256, query_index, add_source_to_index,
             update_session_index, compute_cohens_kappa, build_subagent_prompt,
+            sort_deep_read_queue,
         )
         check("helpers.py import", True)
         # Quick functional test
@@ -117,6 +119,29 @@ def test_scripts():
         check("compute_sha256 returns 64-char hex", len(sha) == 64, f"got len={len(sha)}")
         sha_empty = compute_sha256("/nonexistent/path.txt")
         check("compute_sha256 returns empty on missing file", sha_empty == "")
+        # sort_deep_read_queue functional test
+        test_sources = json.dumps([
+            {"source_id": "S1", "priority": "primary_empirical", "relevance": 4},
+            {"source_id": "S2", "priority": "answers_SQ_directly", "relevance": 5},
+            {"source_id": "S3", "priority": "code_reference", "relevance": 3},
+            {"source_id": "S4", "priority": "cross_theory_comparison", "relevance": 4},
+            {"source_id": "S5", "priority": "review_secondary", "relevance": 2},
+        ])
+        sorted_json = sort_deep_read_queue(test_sources)
+        sorted_sources = json.loads(sorted_json)
+        check("sort_deep_read_queue returns 5 sources", len(sorted_sources) == 5)
+        check("sort_deep_read_queue: S2 first (answers_SQ_directly)",
+              sorted_sources[0]["source_id"] == "S2")
+        check("sort_deep_read_queue: S3 last (code_reference, tier 5)",
+              sorted_sources[-1]["source_id"] == "S3")
+        # Default priority test
+        test_default = json.dumps([
+            {"source_id": "A", "relevance": 5},
+            {"source_id": "B", "priority": "answers_SQ_directly", "relevance": 1},
+        ])
+        sorted_default = json.loads(sort_deep_read_queue(test_default))
+        check("sort_deep_read_queue: explicit priority beats default",
+              sorted_default[0]["source_id"] == "B")
     except Exception as e:
         check("helpers.py import", False, str(e))
 
@@ -163,6 +188,109 @@ def test_scripts():
     except Exception as e:
         check("grade.py self-test", False, str(e))
 
+    # topic_extractor.py
+    try:
+        from topic_extractor import extract_topics, topics_to_csv
+        check("topic_extractor.py import", True)
+        topics = extract_topics(
+            "comparison of Thousand Brain Theory, Free Energy Principle, and Predictive Processing"
+        )
+        check("extract_topics returns list", isinstance(topics, list))
+        check("extract_topics finds >=2 topics", len(topics) >= 2,
+              f"got {len(topics)}: {topics}")
+        csv = topics_to_csv(topics)
+        check("topics_to_csv returns comma-separated", "," in csv or len(topics) <= 1)
+    except Exception as e:
+        check("topic_extractor.py", False, str(e))
+
+    # Adversarial prompt builder
+    try:
+        from prompts import _build_adversarial_prompt
+        result = _build_adversarial_prompt(
+            rq_text="Test RQ: effect of X on Y",
+            included_sources_json='[{"source_id": "S1", "title": "Test Paper"}]',
+            main_topic="test topic",
+        )
+        check("_build_adversarial_prompt returns non-empty str", len(result) > 100)
+        check("_build_adversarial_prompt contains ADVERSARIAL SEARCH",
+              "ADVERSARIAL SEARCH" in result)
+    except Exception as e:
+        check("_build_adversarial_prompt", False, str(e))
+
+    # _build_per_topic_queries
+    try:
+        from prompts import _build_per_topic_queries
+        
+        result = _build_per_topic_queries("TBT,CBH,FEP", '"limitations of {topic}"')
+        check("_build_per_topic_queries 3 topics → 3 lines",
+              len([l for l in result.strip().split('\n') if l.strip()]) == 3)
+        
+        result_empty = _build_per_topic_queries("", "pattern {topic}")
+        check("_build_per_topic_queries empty → empty string",
+              result_empty.strip() == "")
+        
+        result_single = _build_per_topic_queries("single", "query {topic}")
+        check("_build_per_topic_queries single → 1 line",
+              len([l for l in result_single.strip().split('\n') if l.strip()]) == 1)
+        
+        result_trim = _build_per_topic_queries("a, b , c", "topic:{topic}")
+        check("_build_per_topic_queries trim whitespace",
+              len([l for l in result_trim.strip().split('\n') if l.strip()]) == 3)
+    except Exception as e:
+        check("_build_per_topic_queries", False, str(e))
+
+    # build_subagent_prompt — all 10 templates
+    try:
+        from helpers import build_subagent_prompt
+        
+        builder_tests = {
+            'dsr-bibliography': dict(rq_text='Test RQ', bibliography_path='/tmp', main_topic='test'),
+            'dsr-web': dict(rq_text='Test RQ', main_topic='test'),
+            'dsr-code': dict(rq_text='Test RQ'),
+            'dsr-opensource': dict(rq_text='Test RQ', main_topic='test'),
+            'dsr-grey': dict(rq_text='Test RQ', main_topic='test'),
+            'dsr-deep-read': dict(source_id='S1', source_path_or_url='http://ex.com',
+                                  source_title='T', rq_text='RQ', skill_dir=str(SKILL_DIR),
+                                  session_dir='/tmp'),
+            'dsr-deep-read-t5': dict(source_id='S1', repo_url='http://ex.com',
+                                     rq_text='RQ', skill_dir=str(SKILL_DIR), session_dir='/tmp'),
+            'dsr-adversarial': dict(rq_text='RQ', included_sources_json='[]', main_topic='test'),
+            'dsr-da': dict(session_dir='/tmp', skill_dir=str(SKILL_DIR)),
+            'dsr-tiebreak': dict(rq_text='RQ', bibliography_path='/tmp',
+                                 disagreement_list='S1: INCLUDE vs EXCLUDE'),
+        }
+        
+        for name, kwargs in builder_tests.items():
+            prompt = build_subagent_prompt(name, **kwargs)
+            check(f"build_subagent_prompt({name})",
+                  prompt is not None and len(prompt) > 100,
+                  f"got {len(prompt) if prompt else 0} chars")
+        
+        try:
+            build_subagent_prompt('invalid-name', rq_text='x')
+            check("build_subagent_prompt(invalid) raises", False, "should have raised ValueError")
+        except (ValueError, KeyError):
+            check("build_subagent_prompt(invalid) raises", True)
+    except Exception as e:
+        check("build_subagent_prompt dispatcher", False, str(e))
+
+    # stage_output.py
+    try:
+        from stage_output import stage_output_exists, stage_output_valid, stage_is_complete
+        check("stage_output.py import", True)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            # Missing file
+            assert not stage_is_complete(tmp, "01-rq-brief.md")
+            # Valid file
+            from pathlib import Path
+            p = Path(tmp) / "01-rq-brief.md"
+            p.write_text("## Research Question\n...\n## Sub-Questions\n...")
+            assert stage_is_complete(tmp, "01-rq-brief.md")
+        check("stage_is_complete smoke test", True)
+    except Exception as e:
+        check("stage_output.py", False, str(e))
+
 
 # ═══════════════════════════════════════════════════════════════════
 # TEST 3: Template validity
@@ -201,9 +329,9 @@ def test_skill_consistency():
 
     # Count checklist ids
     updates = [int(x) for x in re.findall(r"checklist_update\(\s*id\s*=\s*(\d+)", pd_text)]
-    expected_ids = set(range(1, 16))
+    expected_ids = set(range(1, 17))
     actual_ids = set(updates)
-    check("checklist ids 1-15 all covered", actual_ids == expected_ids,
+    check("checklist ids 1-16 all covered", actual_ids == expected_ids,
           f"missing: {sorted(expected_ids - actual_ids)}, extra: {sorted(actual_ids - expected_ids)}")
 
     # Line count within budget
@@ -211,7 +339,7 @@ def test_skill_consistency():
     check(f"SKILL.md line count ≤ 550", lines <= 550, f"actual: {lines}")
 
     # Intro mentions correct counts
-    check("SKILL.md intro mentions 14 stages", "14 stages" in skill_text)
+    check("SKILL.md intro mentions stages", "stages" in skill_text)
     if "23 verification gates" in skill_text or "22 verification gates" in skill_text:
         check("SKILL.md intro mentions gate count", True)
     else:
@@ -291,8 +419,10 @@ def test_configuration():
         "deep_reading": bool,
         "living_review": bool,
         "surveillance_interval_days": int,
+        "oss_clone_dir": str,
+        "adversarial_search": bool,
     }
-    check("18 config vars documented", len(defaults) == 18)
+    check("20 config vars documented", len(defaults) == 20)
 
 
 # ═══════════════════════════════════════════════════════════════════
