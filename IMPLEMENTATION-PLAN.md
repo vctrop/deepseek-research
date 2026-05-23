@@ -1,8 +1,29 @@
 # Continuous Improvement Plan — deepseek-research
 
 **Generated:** 2026-05-23
+**Last updated:** 2026-05-23 (audit complete — Ondas 1-4)
 **Based on:** Full-session execution (RQ: teorias-computacionais-cerebro, 23 sources, 15 stages, Devil's Advocate MINOR verdict)
-**Artifacts inspected:** `SKILL.md`, `helpers.py` (641 lines), `pipeline-detail.md`, `subagent-prompts.md`, templates/, research-reports/2026-05-22-teorias-computacionais-cerebro/*
+**Artifacts inspected:** `SKILL.md`, `helpers.py` (641 lines → 365 lines post-audit), `pipeline-detail.md`, `subagent-prompts.md`, templates/, research-reports/2026-05-22-teorias-computacionais-cerebro/*
+
+## Implementation Status (2026-05-23 audit)
+
+| Phase | Items | Status |
+|-------|-------|--------|
+| **Phase 1** (Bug fixes) | 1.1, 1.2, 1.3 | ✅ All fixed |
+| **Phase 2** (Resilience) | 2.1, 2.2 | ✅ Implemented |
+| **Phase 3** (Deep reading) | 3.1, 3.2, 3.3 | ✅ Implemented |
+| **Phase 4** (Quality gates) | 4.1, 4.2 | ✅ Implemented |
+| **Phase 5** (Advanced) | 5.1, 5.2, 5.3, 5.4 | ✅ Implemented |
+
+### Audit corrections applied (commit 89ee3e7)
+- **Checklist alignment:** `checklist_write` reordered to match `checklist_update` IDs
+- **Gate count:** Unified to 22 across all references
+- **Stage count:** Corrected to 14
+- **`{{session_dir}}`:** Fixed double-brace bug in deep read prompts
+- **Prompt extraction:** 461 lines → `scripts/prompts.py`; `helpers.py`: 852→365 lines
+- **Tiebreak f-string bug:** `{n}`→`{{n}}` in `_build_tiebreak_prompt`
+- **AGENTS.md:** Created development guide
+- **prepare-commit-msg hook:** Removed (duplicate of TUI's co-author injection)
 
 ---
 
