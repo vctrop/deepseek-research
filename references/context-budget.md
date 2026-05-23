@@ -5,13 +5,16 @@
 The orchestrator accumulates references, templates, and stage outputs across the
 pipeline. To prevent context overflow:
 
-- **Soft ceiling:** 150K tokens. When estimated context exceeds this, delegate
-  remaining work to sub-agents and request `/compact`.
-- **Hard ceiling:** 200K tokens. At this point, all further work MUST run in
+- **Warning threshold:** ≥ 120K tokens. When estimated context exceeds this,
+  delegate remaining work to sub-agents and request `/compact`. Emit:
+  "⚠ Context pressure: {N}K tokens estimated. Consider `/compact` after this stage."
+- **Halt threshold:** ≥ 180K tokens. At this point, **PAUSE the pipeline.**
+  Emit: "⛔ Context critical: {N}K tokens. Write session state and request
+  `/compact` + 'continue deep research {slug}'." All further work MUST run in
   sub-agents. The orchestrator only coordinates and synthesizes final results.
 - **Monitor:** After each stage, estimate tokens consumed (files read × ~1.3
-  chars/token for code, ~1.0 for prose). If ≥120K, plan compaction before the
-  next stage.
+  chars/token for code, ~1.0 for prose). Use `helpers.estimate_context_tokens()`
+  for automated estimation. If ≥120K, plan compaction before the next stage.
 - **Reference discipline:** Reference files by path + section after first read.
   Never re-read the same reference file between stages — use the prefix cache.
   See SKILL.md §Quick Reference for when each reference is needed.

@@ -62,6 +62,9 @@ code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from
 agent_open(name="dsr-code", model="deepseek-v4-flash",
   allowed_tools=["grep_files","read_file","file_search","write_file"],
   prompt=<output from code_execution above>)
+
+**Output file:** Sub-agent MUST write complete results to `/tmp/dsr-code-results.md` before responding.
+Orchestrator reads this file after `agent_eval` completes.
 ```
 
 ---
