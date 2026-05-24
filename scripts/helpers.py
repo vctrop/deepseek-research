@@ -337,3 +337,91 @@ def build_subagent_prompt(
     if builder is None:
         raise ValueError(f"Unknown template: {template_name}. Valid: {list(prompts.keys())}")
     return builder(**kwargs)
+
+
+def config_ensure(project_root: str = ".") -> str:
+    """Verifica e corrige o arquivo .deepseek/deepseek-research.toml.
+
+    Se o arquivo não existir, cria com todos os defaults.
+    Se existir, adiciona chaves faltantes com valores default.
+    Chaves existentes NUNCA são sobrescritas.
+
+    Args:
+        project_root: Caminho para o root do projeto (default: cwd).
+
+    Returns:
+        String descritiva: "created" | "added N keys: ..." | "ok".
+    """
+    import tomllib
+    from pathlib import Path
+
+    # Defaults (espelham SKILL.md § Configuration)
+    DEFAULTS = {
+        "source_axes": '["bibliography", "codebase"]',
+        "output_dir": '"research-reports/"',
+        "deep_reading": "true",
+        "max_deep_reads": "10",
+        "max_sources_per_axis": "20",
+        "bibliography_path": '"bibliography/"',
+        "oss_clone_dir": '"oss/"',
+        "unpaywall_email": '""',
+        "allow_scihub": "false",
+        "scihub_domain": '""',
+    }
+
+    root = Path(project_root).resolve()
+    config_dir = root / ".deepseek"
+    config_path = config_dir / "deepseek-research.toml"
+
+    # Parse existing if present
+    existing: dict[str, str] = {}
+    if config_path.exists():
+        try:
+            raw = config_path.read_text(encoding="utf-8")
+            # Parse with tomllib to get structured values
+            parsed = tomllib.loads(raw)
+            # Convert back to TOML-compatible string values for re-emission
+            for key, value in parsed.items():
+                if isinstance(value, bool):
+                    existing[key] = "true" if value else "false"
+                elif isinstance(value, list):
+                    items = ", ".join(f'"{v}"' for v in value)
+                    existing[key] = f"[{items}]"
+                elif isinstance(value, str):
+                    existing[key] = f'"{value}"'
+                elif isinstance(value, (int, float)):
+                    existing[key] = str(value)
+                else:
+                    existing[key] = f'"{value}"'
+        except Exception:
+            # If TOML is corrupted, fall back to regex line parsing
+            for line in raw.splitlines():
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    key, _, val = line.partition("=")
+                    existing[key.strip()] = val.strip()
+
+    # Determine missing keys
+    missing = {k: v for k, v in DEFAULTS.items() if k not in existing}
+
+    if not missing and config_path.exists():
+        return "ok"
+
+    # Build TOML content
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    if not config_path.exists():
+        # Create from scratch with all defaults
+        lines = ["# deepseek-research v3.1 — Configuração auto-gerada\n"]
+        for key, val in DEFAULTS.items():
+            lines.append(f"{key} = {val}")
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return "created"
+    else:
+        # Append missing keys
+        with open(config_path, "a", encoding="utf-8") as f:
+            f.write("\n# Auto-adicionados por config_ensure:\n")
+            for key, val in missing.items():
+                f.write(f"{key} = {val}\n")
+        keys_list = ", ".join(missing.keys())
+        return f"added {len(missing)} keys: {keys_list}"

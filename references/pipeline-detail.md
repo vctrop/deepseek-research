@@ -18,16 +18,19 @@ Close:    Persistence + Verification
 
 ---
 
-## Phase 0: Index Bootstrap
+## Phase 0: Index Bootstrap + Config Check
 
 **Quem:** Orquestrador (Pro)
-**Output:** `bibliography/index/sources.json`
+**Output:** `bibliography/index/sources.json`, `.deepseek/deepseek-research.toml`
 
-1. `init_sources()` — idempotente, cria `bibliography/` e `bibliography/index/`
+1. `config_ensure()` — verifica se `.deepseek/deepseek-research.toml` existe
+   e contém todas as 10 chaves. Cria o arquivo se ausente; adiciona chaves
+   faltantes com defaults se incompleto. Nunca sobrescreve valores existentes.
+2. `init_sources()` — idempotente, cria `bibliography/` e `bibliography/index/`
    com `sources.json` vazio (`[]`) se não existirem.
-2. `scan_unindexed()` — varre `bibliography/` por arquivos não indexados.
-3. Se encontrados: notificar usuário com contagem.
-4. Prosseguir silenciosamente se tudo ok.
+3. `scan_unindexed()` — varre `bibliography/` por arquivos não indexados.
+4. Se encontrados: notificar usuário com contagem.
+5. Prosseguir silenciosamente se tudo ok.
 
 ---
 

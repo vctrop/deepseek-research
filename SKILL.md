@@ -71,19 +71,27 @@ Se `03-source-verification.md` existe, retome do Stage 4.
 
 ---
 
-## Phase 0: Index Bootstrap
+## Phase 0: Index Bootstrap + Config Check
 
-**Output:** `bibliography/index/sources.json` (criado se não existir)
+**Output:** `bibliography/index/sources.json` (criado se não existir), `.deepseek/deepseek-research.toml` (criado/corrigido se necessário)
 
-1. Verificar se `{bibliography_path}/index/` existe:
+1. Verificar/corrigir config:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import config_ensure; print(config_ensure('.'))")
+   ```
+   - `"created"` → config criado com defaults
+   - `"added N keys: ..."` → chaves faltantes adicionadas
+   - `"ok"` → nada a fazer
+
+2. Verificar se `{bibliography_path}/index/` existe:
    ```
    code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import init_sources; from pathlib import Path; init_sources(Path('{bibliography_path}')); print('Index bootstrap OK')")
    ```
-2. Escanear por arquivos não-indexados:
+3. Escanear por arquivos não-indexados:
    ```
    code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import scan_unindexed; from pathlib import Path; import json; result = scan_unindexed(Path('{bibliography_path}')); print(json.dumps(result, indent=2))")
    ```
-3. Se houver arquivos não-indexados (>0 no JSON array): emitir nota
+4. Se houver arquivos não-indexados (>0 no JSON array): emitir nota
    `"Note: {N} unindexed files in bibliography/. Run /index-sources to incorporate them."`
    Caso contrário: silencioso, prosseguir.
 

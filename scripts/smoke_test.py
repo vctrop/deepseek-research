@@ -97,6 +97,7 @@ def test_scripts():
         from helpers import (
             compute_sha256, resolve_placeholders,
             build_subagent_prompt, compute_saturation,
+            config_ensure,
         )
         check("helpers.py import", True)
 
@@ -130,6 +131,35 @@ def test_scripts():
         # compute_saturation with empty dir
         sat = compute_saturation("/nonexistent/deep-reads/", "test RQ")
         check("compute_saturation returns False for nonexistent dir", not sat)
+
+        # config_ensure
+        import tempfile, tomllib
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Test 1: creates config when absent
+            result = config_ensure(tmpdir)
+            check("config_ensure creates when absent", result == "created")
+            config_path = Path(tmpdir) / ".deepseek" / "deepseek-research.toml"
+            check("config_ensure writes file", config_path.exists())
+            parsed = tomllib.loads(config_path.read_text())
+            check("config_ensure has all 10 keys", len(parsed) == 10,
+                  f"got {len(parsed)} keys: {list(parsed.keys())}")
+
+            # Test 2: ok when complete
+            result = config_ensure(tmpdir)
+            check("config_ensure returns ok when complete", result == "ok")
+
+            # Test 3: adds missing keys (simulate by removing lines)
+            content = config_path.read_text()
+            stripped = "\n".join(
+                line for line in content.splitlines()
+                if "unpaywall_email" not in line and "allow_scihub" not in line
+            )
+            config_path.write_text(stripped)
+            result = config_ensure(tmpdir)
+            check("config_ensure adds missing keys",
+                  result.startswith("added ") and "unpaywall_email" in result)
+            reparsed = tomllib.loads(config_path.read_text())
+            check("config_ensure restored 10 keys", len(reparsed) == 10)
 
     except Exception as e:
         check("helpers.py import", False, str(e))
