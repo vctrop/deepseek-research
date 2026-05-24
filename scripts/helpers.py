@@ -325,7 +325,8 @@ def build_subagent_prompt(
     """Constrói um prompt de sub-agent com interpolação segura.
 
     Templates suportados:
-      - dsr-bibliography: kwargs = {rq_text, bibliography_path, main_topic, topics (optional)}
+      - dsr-bibliography: kwargs = {rq_text, bibliography_path, main_topic,
+        topics (optional), local_sources_json (optional)}
       - dsr-code: kwargs = {rq_text}
     """
     prompts = {

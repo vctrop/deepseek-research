@@ -3,16 +3,31 @@
 Carregado pelo orquestrador em cada estágio quando o SKILL.md enxuto diz
 "Ver `references/pipeline-detail.md` §Stage N para instruções detalhadas."
 
-## Estágios (5 + Close)
+## Estágios (5 + Close + Indexing)
 
 ```
-Stage 1: RQ Formulation
-Stage 2: Source Discovery (bibliography + codebase)
-Stage 3: Source Verification
-Stage 4: Deep Reading
-Stage 5: Synthesis + Report
-Close:   Verification (5 gates)
+Phase 0:  Index Bootstrap
+Stage 1:  RQ Formulation
+Phase 1.5: Local Corpus Triage
+Stage 2:  Source Discovery (bibliography + codebase)
+Stage 3:  Source Verification
+Stage 4:  Deep Reading
+Stage 5:  Synthesis + Report
+Close:    Persistence + Verification
 ```
+
+---
+
+## Phase 0: Index Bootstrap
+
+**Quem:** Orquestrador (Pro)
+**Output:** `bibliography/index/sources.json`
+
+1. `init_sources()` — idempotente, cria `bibliography/` e `bibliography/index/`
+   com `sources.json` vazio (`[]`) se não existirem.
+2. `scan_unindexed()` — varre `bibliography/` por arquivos não indexados.
+3. Se encontrados: notificar usuário com contagem.
+4. Prosseguir silenciosamente se tudo ok.
 
 ---
 
@@ -58,6 +73,23 @@ Close:   Verification (5 gates)
 
 ---
 
+## Phase 1.5: Local Corpus Triage
+
+**Quem:** Orquestrador (Pro)
+**Output:** `local_sources_json` (passado para o sub-agent dsr-bibliography em Stage 2)
+
+1. Rodar `query_sources()` com keywords extraídos dos tópicos da RQ:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import query_sources; from pathlib import Path; import json; result = query_sources(Path('{bibliography_path}'), '{topics}'.split(','), top_n=10); print(json.dumps(result, indent=2))")
+   ```
+2. O JSON output é `{local_sources_json}` — array de entries com `id`, `title`,
+   `path`, `keywords`, `summary`, `year`, `doi`.
+3. Se vazio (`[]`): pular, sub-agent dsr-bibliography roda sem contexto local.
+4. Se houver matches: injetar no prompt do `dsr-bibliography` via
+   `local_sources_json={local_sources_json}`.
+
+---
+
 ## Stage 2: Source Discovery
 
 **Quem:** 2 sub-agents Flash (bibliography + codebase) + Orquestrador
@@ -65,9 +97,9 @@ Close:   Verification (5 gates)
 
 ### 2.1 Bibliografia
 
-Gerar prompt via helpers.py:
+Gerar prompt via helpers.py (com `local_sources_json` se disponível):
 ```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', topics='{topics}'))")
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', topics='{topics}', local_sources_json='{local_sources_json}'))")
 ```
 
 Dispatch:
@@ -350,11 +382,24 @@ Cada fonte gera `deep-reads/{source_id}.md` com:
 
 ---
 
-## Close: Verification
+## Close: Persistence + Verification
 
-**Output:** `MANIFEST.txt`
+**Output:** `MANIFEST.txt`, `SESSION-INDEX.md`, `bibliography/index/sources.json`
 
-### Procedimento
+### Persistência de Corpus
+
+Após Stage 5, persistir fontes usadas no relatório que passaram no Stage 3:
+
+1. **Fontes novas (web-discovered):** para cada fonte nova usada no `05-report.md`,
+   chamar `add_source()` com o arquivo PDF/markdown e os metadados (id, title,
+   authors, year, doi, keywords, summary, quality_level, source_type).
+2. **Fontes locais reutilizadas:** chamar `update_sessions()` para cada fonte
+   local usada, registrando `{session_slug}` em `sessions_used`.
+3. **SESSION-INDEX.md:** append de uma linha com date, slug, target, mode, e
+   key findings (≤280 chars). Criar o arquivo com header row se não existir.
+4. Emitir resumo: "Corpus updated: X new, Y reused."
+
+### Verification Gates
 
 1. Criar `MANIFEST.txt` com header.
 2. Executar cada gate:

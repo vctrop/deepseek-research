@@ -59,6 +59,7 @@ def test_file_integrity():
     ]
     expected_scripts = [
         "helpers", "prompts", "topic_extractor",
+        "index_sources", "fulltext",
     ]
     expected_templates = [
         "rq-brief", "source-inventory", "source-verification", "synthesis",
@@ -167,6 +168,85 @@ def test_scripts():
     except Exception as e:
         check("topic_extractor.py import", False, str(e))
 
+    # index_sources.py
+    try:
+        import tempfile
+        from index_sources import (
+            init_sources, scan_unindexed, query_sources,
+            add_source, update_sessions,
+        )
+        check("index_sources.py import", True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir) / "bib"
+
+            # init
+            init_sources(base)
+            check("init_sources creates base dir", base.is_dir())
+            check("init_sources creates index/", (base / "index").is_dir())
+            idx_path = base / "index" / "sources.json"
+            check("init_sources creates sources.json", idx_path.exists())
+
+            # Idempotent
+            init_sources(base)
+            check("init_sources is idempotent", idx_path.exists())
+
+            # scan_unindexed (empty)
+            result = scan_unindexed(base)
+            check("scan_unindexed empty returns []", result == [], f"got {result}")
+
+            # add_source
+            pdf = base / "test.pdf"
+            pdf.write_text("fake pdf content")
+            entry = {
+                "id": "smith-2020", "title": "Test Paper",
+                "authors": ["Smith, J."], "year": 2020,
+                "doi": "10.1234/test", "keywords": ["test"],
+                "summary": "A test paper.", "quality_level": "II",
+                "source_type": "paper",
+            }
+            result = add_source(base, pdf, entry)
+            check("add_source returns entry with path", result.get("path") == "smith-2020.pdf")
+            check("add_source copies file to bibliography",
+                  (base / "smith-2020.pdf").exists())
+            check("add_source sets indexed_at", "indexed_at" in result)
+
+            # Duplicate ID
+            try:
+                add_source(base, pdf, {"id": "smith-2020", "title": "Dup"})
+                check("add_source rejects duplicate ID", False)
+            except ValueError:
+                check("add_source rejects duplicate ID", True)
+
+            # query_sources
+            # Reinit with fresh data
+            import json
+            idx_path.write_text(json.dumps([entry]))
+            results = query_sources(base, ["test", "paper"], top_n=5)
+            check("query_sources returns results", len(results) >= 1)
+            check("query_sources returns correct entry",
+                  results[0].get("id") == "smith-2020")
+
+            # No-match query
+            results = query_sources(base, ["xyzzy", "nonexistent"], top_n=5)
+            check("query_sources no-match returns []", results == [])
+
+            # update_sessions
+            update_sessions(base, "smith-2020", "2026-05-24-test")
+            entries = json.loads(idx_path.read_text())
+            sessions = entries[0].get("sessions_used", [])
+            check("update_sessions appends slug", "2026-05-24-test" in sessions)
+
+            # update_sessions bad ID
+            try:
+                update_sessions(base, "nonexistent", "slug")
+                check("update_sessions raises on bad ID", False)
+            except KeyError:
+                check("update_sessions raises on bad ID", True)
+
+    except Exception as e:
+        check("index_sources.py functional tests", False, str(e))
+
 
 # ═══════════════════════════════════════════════════════════════════
 # TEST 3: Template validity — all templates parse clean
@@ -189,12 +269,12 @@ def test_skill_consistency():
 
     skill_text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
 
-    # 5 stages
-    for s in ["Stage 1", "Stage 2", "Stage 3", "Stage 4", "Stage 5"]:
+    # 5 stages + 2 indexing phases
+    for s in ["Phase 0", "Phase 1.5", "Stage 1", "Stage 2", "Stage 3", "Stage 4", "Stage 5"]:
         check(f"SKILL.md mentions {s}", s in skill_text)
 
-    # 5 gates
-    gates = [f"GATE-{i}" for i in range(1, 6)]
+    # 10 gates (v3.0)
+    gates = [f"GATE-{i}" for i in range(1, 11)]
     for g in gates:
         check(f"SKILL.md mentions {g}", g in skill_text)
 
@@ -231,9 +311,10 @@ def test_skill_consistency():
         if stale in skill_text:
             warn(f"SKILL.md contains stale reference: {stale}")
 
-    # pipeline-detail consistency
+    # pipeline-detail consistency (only documents GATE 1-5 procedurally)
     pd_text = (SKILL_DIR / "references" / "pipeline-detail.md").read_text(encoding="utf-8")
-    for g in gates:
+    pd_gates = [f"GATE-{i}" for i in range(1, 6)]
+    for g in pd_gates:
         check(f"pipeline-detail.md mentions {g}", g in pd_text)
     for s in ["Stage 1", "Stage 2", "Stage 3", "Stage 4", "Stage 5"]:
         check(f"pipeline-detail.md mentions {s}", s in pd_text)

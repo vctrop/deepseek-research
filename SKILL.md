@@ -56,15 +56,36 @@ orquestrador. `{SKILL_DIR}` → diretório de instalação da skill.
 ## Pipeline Overview
 
 ```
-Stage 1: RQ Formulation     → 01-rq-brief.md, protocol-freeze.json
-Stage 2: Source Discovery    → 02-source-inventory.md
-Stage 3: Source Verification → 03-source-verification.md
-Stage 4: Deep Reading        → deep-reads/*.md
-Stage 5: Synthesis + Report  → 04-synthesis.md, 05-report.md
-Close:   Verification        → MANIFEST.txt (5 gates)
+Phase 0:  Index Bootstrap      → bibliography/index/sources.json
+Stage 1:  RQ Formulation       → 01-rq-brief.md, protocol-freeze.json
+Phase 1.5: Local Corpus Triage → local_sources list (query index)
+Stage 2:  Source Discovery     → 02-source-inventory.md
+Stage 3:  Source Verification  → 03-source-verification.md
+Stage 4:  Deep Reading         → deep-reads/*.md
+Stage 5:  Synthesis + Report   → 04-synthesis.md, 05-report.md
+Close:    Persistence + Gates  → MANIFEST.txt, SESSION-INDEX.md
 ```
 
 **Resume from interruption:** retome do último estágio com output file completo.
+Se `03-source-verification.md` existe, retome do Stage 4.
+
+---
+
+## Phase 0: Index Bootstrap
+
+**Output:** `bibliography/index/sources.json` (criado se não existir)
+
+1. Verificar se `{bibliography_path}/index/` existe:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import init_sources; from pathlib import Path; init_sources(Path('{bibliography_path}')); print('Index bootstrap OK')")
+   ```
+2. Escanear por arquivos não-indexados:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import scan_unindexed; from pathlib import Path; import json; result = scan_unindexed(Path('{bibliography_path}')); print(json.dumps(result, indent=2))")
+   ```
+3. Se houver arquivos não-indexados (>0 no JSON array): emitir nota
+   `"Note: {N} unindexed files in bibliography/. Run /index-sources to incorporate them."`
+   Caso contrário: silencioso, prosseguir.
 
 ---
 
@@ -88,6 +109,25 @@ Close:   Verification        → MANIFEST.txt (5 gates)
 
 ---
 
+## Phase 1.5: Local Corpus Triage
+
+**Output:** `local_sources` list (passado para Stage 2)
+
+1. Extrair keywords dos tópicos da RQ (já disponíveis de Stage 1 como `{topics}`).
+2. Consultar o índice local:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import query_sources; from pathlib import Path; import json; result = query_sources(Path('{bibliography_path}'), '{topics}'.split(','), top_n=10); print(json.dumps(result, indent=2))")
+   ```
+3. Armazenar o JSON output como `{local_sources_json}`.
+4. Se o array estiver vazio (`[]`) → prosseguir para Stage 2 sem fontes locais.
+5. Se houver matches: passar `local_sources_json={local_sources_json}` para
+   `build_subagent_prompt` no Stage 2.1. O sub-agent `dsr-bibliography` receberá
+   a lista de fontes locais no prompt e as lerá via `read_file` antes de buscar
+   na web. Fontes locais incluídas devem ser marcadas com "(local corpus)" na
+   coluna Why da tabela de fontes.
+
+---
+
 ## Stage 2: Source Discovery
 
 **Output:** `02-source-inventory.md`
@@ -96,7 +136,7 @@ Close:   Verification        → MANIFEST.txt (5 gates)
 ### 2.1 Bibliografia (sub-agent Flash)
 
 ```
-code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', topics='{topics}'))")
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-bibliography', rq_text='{RQ_TEXT}', bibliography_path='{bibliography_path}', main_topic='{main_topic}', topics='{topics}', local_sources_json='{local_sources_json}'))")
 agent_open(name="dsr-bibliography", model="deepseek-v4-flash", allowed_tools=["grep_files","read_file","web_search","fetch_url","write_file"], prompt=<output>)
 ```
 Output: `/tmp/dsr-bibliography-results.md`. Inclui queries negativas
@@ -240,9 +280,59 @@ quais PDFs estão disponíveis. Ver `references/pipeline-detail.md` §3.1.
 
 ---
 
-## Close: Verification (10 gates)
+## Close: Persistence + Verification
 
-**Output:** `MANIFEST.txt`
+**Output:** `MANIFEST.txt`, `SESSION-INDEX.md`, `bibliography/index/sources.json`
+
+### Persistence (executar antes dos gates)
+
+Para fontes usadas no relatório que sobreviveram ao Stage 3 (ACCESSIBLE):
+
+1. **Fontes novas (web-discovered):** para cada fonte nova usada no `05-report.md`
+   que não estava no índice local, persistir via `add_source`:
+   ```
+   code_execution(code='''
+   import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
+   from index_sources import add_source
+   from pathlib import Path
+
+   # Para cada fonte nova: copiar PDF/markdown do session_dir/pdfs/ para bibliography/
+   # e adicionar entrada ao índice.
+   entry = {{
+       "id": "{source_id}",
+       "title": "{title}",
+       "authors": [{authors}],
+       "year": {year},
+       "doi": "{doi}",
+       "keywords": [{keywords}],
+       "summary": "{summary}",
+       "quality_level": "{quality_level}",
+       "source_type": "{source_type}",
+       "sessions_used": ["{session_slug}"],
+   }}
+   file_path = Path("{session_dir}/pdfs/{source_id}.pdf")
+   if file_path.exists():
+       result = add_source(Path("{bibliography_path}"), file_path, entry)
+       print(f"Indexed: {{result['path']}}")
+   else:
+       print(f"Skip (no file): {{source_id}}")
+   ''')
+   ```
+
+2. **Fontes locais reutilizadas:** atualizar `sessions_used`:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from index_sources import update_sessions; from pathlib import Path; update_sessions(Path('{bibliography_path}'), '{source_id}', '{session_slug}'); print('Session updated')")
+   ```
+
+3. **SESSION-INDEX.md:** append uma linha à tabela em `{output_dir}/SESSION-INDEX.md`:
+   ```
+   | {date} | {slug} | {research_target} | rapid | {key_findings_summary_≤280_chars} |
+   ```
+   Se o arquivo não existir, criar com header row primeiro.
+
+4. Emitir resumo: "Corpus updated: {X} new sources indexed, {Y} local sources reused."
+
+### Verification Gates (10 gates)
 
 | Gate | Tipo | Descrição |
 |------|------|-----------|
@@ -319,14 +409,22 @@ print(check_coverage_grade_consistency(
 ## Session output structure
 
 ```
-{output_dir}/{date}-{slug}/
-├── MANIFEST.txt
-├── protocol-freeze.json
-├── 01-rq-brief.md
-├── 02-source-inventory.md
-├── 03-source-verification.md
-├── deep-reads/
-│   └── {source_id}.md
-├── 04-synthesis.md
-└── 05-report.md
+{output_dir}/
+├── SESSION-INDEX.md          ← append-only session log
+├── {date}-{slug}/
+│   ├── MANIFEST.txt
+│   ├── protocol-freeze.json
+│   ├── 01-rq-brief.md
+│   ├── 02-source-inventory.md
+│   ├── 03-source-verification.md
+│   ├── pdfs/
+│   │   └── mapping.json
+│   ├── deep-reads/
+│   │   └── {source_id}.md
+│   ├── 04-synthesis.md
+│   └── 05-report.md
+└── bibliography/
+    ├── index/
+    │   └── sources.json      ← cross-session corpus index
+    └── {source_id}.pdf        ← persisted source files
 ```

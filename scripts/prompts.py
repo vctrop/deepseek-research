@@ -34,8 +34,14 @@ def _build_bibliography_prompt(
     bibliography_path: str,
     main_topic: str,
     topics: str = "",
+    local_sources_json: str = "",
 ) -> str:
-    """Prompt para sub-agent dsr-bibliography."""
+    """Prompt para sub-agent dsr-bibliography.
+
+    Args:
+        local_sources_json: JSON string de entradas do corpus local
+            (output de index_sources.py query). Vazio se não houver matches.
+    """
     if topics:
         per_topic = _build_per_topic_queries(topics, '"limitations of {topic}"')
         per_topic += "\n" + _build_per_topic_queries(topics, '"criticism of {topic}"')
@@ -50,7 +56,28 @@ For the main topic of this RQ, run at least:
 - "criticism of {main_topic}"
 - "failure cases of {main_topic}\""""
 
+    # Build local corpus block if sources are available
+    local_block = ""
+    if local_sources_json and local_sources_json.strip() and local_sources_json.strip() != "[]":
+        local_block = f"""## Local Corpus (already indexed — read these files first)
+
+The following sources are in your local bibliography at {bibliography_path}
+and matched the RQ keywords. Read them via `read_file` and include relevant
+ones in your output table. Mark them as **local** in a Source ID comment.
+
+```json
+{local_sources_json}
+```
+
+For each local source you include:
+- Use `read_file("{bibliography_path}/{{filename}}")` to verify the file exists
+- Include it in your main source table with the note "(local corpus)" in the Why column
+- Do NOT re-search the web for these — they are already in the corpus
+"""
+
     return f"""Search project bibliography at {bibliography_path} for sources relevant to RQ: {rq_text}
+
+{local_block}
 
 {negative_block}
 
