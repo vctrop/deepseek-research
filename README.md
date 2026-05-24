@@ -23,7 +23,7 @@ deep research How does in-context learning work in large language models?
 ```
 
 A skill irá:
-1. Bootstrap do índice bibliográfico (`bibliography/index/sources.json`)
+1. Verificar/criar `.deepseek/deepseek-research.toml` e bootstrap do índice bibliográfico
 2. Formular a research question e gerar `protocol-freeze.json`
 3. Consultar o corpus local por fontes já indexadas relevantes (local triage)
 4. Descobrir fontes nos eixos de bibliografia e codebase (web + local)
@@ -37,38 +37,34 @@ A skill irá:
 
 ## Configuration
 
-Crie `.deepseek/deepseek-research.toml` no root do projeto:
+O arquivo `.deepseek/deepseek-research.toml` é criado e mantido automaticamente
+pela skill (Phase 0 — `config_ensure`). Na primeira execução, ele é gerado com
+todos os defaults. Em execuções subsequentes, chaves faltantes são adicionadas
+sem sobrescrever valores existentes.
 
 ```toml
-# Eixos de descoberta
+# deepseek-research v3.1 — Configuração auto-gerada
 source_axes = ["bibliography", "codebase"]
-
-# Output directory
 output_dir = "research-reports/"
-
-# Deep reading
 deep_reading = true
-
-# Máximo de fontes para deep reading (sujeito a saturação)
 max_deep_reads = 10
-
-# Máximo de fontes por eixo
 max_sources_per_axis = 20
-
-# Caminho do índice bibliográfico
 bibliography_path = "bibliography/"
-
-# Clone de repositórios (T5)
 oss_clone_dir = "oss/"
+unpaywall_email = ""
+allow_scihub = false
+scihub_domain = ""
 ```
 
-Todas as variáveis têm defaults sensíveis (10 variáveis no total).
+Todas as 10 variáveis têm defaults sensíveis. Para habilitar acesso a PDFs de
+papers com Open Access, preencha `unpaywall_email` com seu email institucional
+(a API Unpaywall é gratuita).
 
 ## Pipeline Stages
 
 | # | Stage | Output |
 |---|-------|--------|
-| 0 | Index Bootstrap | `bibliography/index/sources.json` |
+| 0 | Index Bootstrap + Config Check | `bibliography/index/sources.json`, `.deepseek/deepseek-research.toml` |
 | 1 | RQ Formulation | `01-rq-brief.md`, `protocol-freeze.json` |
 | 1.5 | Local Corpus Triage | `local_sources` (query index → Stage 2) |
 | 2 | Source Discovery | `02-source-inventory.md` |
@@ -109,9 +105,10 @@ persistidas no índice local para reúso em pesquisas futuras.
 
 ### Como funciona
 
-1. **Phase 0 — Bootstrap:** o índice é criado automaticamente na primeira execução
-   (`bibliography/index/sources.json`). Arquivos soltos em `bibliography/` são
-   detectados e reportados para indexação manual.
+1. **Phase 0 — Bootstrap:** o config (`deepseek-research.toml`) e o índice
+   (`bibliography/index/sources.json`) são criados automaticamente na primeira
+   execução. Arquivos soltos em `bibliography/` são detectados e reportados
+   para indexação manual.
 
 2. **Phase 1.5 — Local Triage:** antes de buscar na web, a skill consulta o índice
    local com as keywords extraídas da research question. Fontes já indexadas que
