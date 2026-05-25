@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""fulltext.py — PDF full-text acquisition para deepseek-research v3.0.
+"""fulltext.py — PDF full-text acquisition para deepseek-research v3.1.
 
-Implementa a cadeia de fallback SPEC-003:
+Implementa a cadeia de fallback SPEC-003 expandida:
   1. arXiv PDF direto (se arXiv ID disponível)
   2. Unpaywall API (legal, DOI → OA PDF URL)
-  3. Sci-Hub (shadow library, opt-in)
+  3. Shadow libraries configuráveis (opt-in), em ordem:
+     - Sci-Hub + SciDB mirrors
+     - Library Genesis SciMag
+     - Anna's Archive metasearch
+  4. Abstract via DOI (fallback mínimo, sempre ativo)
 
 Inclui evasão de detecção por editoras:
   - Headers de browser realista (Chrome Linux)
   - Rate limiting com delay aleatório
-  - Cookie/sessão para publishers
+  - Detecção de Cloudflare/paywall para evitar falsos positivos
 
 Chamado via `code_execution` a partir do SKILL.md Stage 3.
 
@@ -19,11 +23,10 @@ import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
 from fulltext import resolve_fulltext
 result = resolve_fulltext(
     doi="10.1038/nature12373",
-    arxiv_id=None,
     source_id="S1",
     output_dir="{session_dir}/pdfs/",
     unpaywall_email="user@example.com",
-    allow_scihub=False,
+    shadow_libraries=["scihub", "libgen"],
 )
 print(json.dumps(result))
     ''')
@@ -58,11 +61,17 @@ BROWSER_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-# Domínios Sci-Hub conhecidos (tentados em ordem)
+# Domínios Sci-Hub + mirrors conhecidos (tentados em ordem)
+# Inclui SciDB (continuação do Sci-Hub) e mirrors regionais.
+# Fonte: shadowlibraries.github.io, atualizado 2026-05.
 _SCI_HUB_DOMAINS = [
     "sci-hub.st",
     "sci-hub.se",
     "sci-hub.ru",
+    "sci-hub.hlgczx.com",
+    "sci-hub.mobi",
+    "scidb.org",
+    "sci-hub.ee",
 ]
 
 # Timeout HTTP padrão (segundos)
@@ -290,21 +299,256 @@ def _try_scihub_domains(doi: str, domains: list[str]) -> str | None:
     return None
 
 
-def _download_scihub_pdf(pdf_url: str, source_id: str, output_dir: str) -> dict | None:
-    """Baixa o PDF da URL resolvida pelo Sci-Hub."""
-    pdf_path = os.path.join(output_dir, f"{source_id}.pdf")
+def _download_shadow_pdf(
+    pdf_url: str, source_id: str, output_dir: str, method: str
+) -> dict | None:
+    """Baixa PDF de uma shadow library genérica.
 
+    Args:
+        pdf_url: URL direta do PDF.
+        source_id: Identificador da fonte.
+        output_dir: Diretório de output.
+        method: Nome do método para o campo 'method' (ex: "scihub", "libgen").
+
+    Returns:
+        dict com status/method/pdf_path ou None.
+    """
+    pdf_path = os.path.join(output_dir, f"{source_id}.pdf")
+    _interrequest_delay()
     if _download_binary(pdf_url, pdf_path):
         return {
-            "status": "scihub",
+            "status": method,
             "pdf_path": pdf_path,
             "pdf_url": pdf_url,
-            "method": "scihub",
+            "method": method,
         }
     return None
 
 
+# Backward-compat wrapper
+def _download_scihub_pdf(pdf_url: str, source_id: str, output_dir: str) -> dict | None:
+    return _download_shadow_pdf(pdf_url, source_id, output_dir, "scihub")
+
+
+# ── Library Genesis (SciMag) ─────────────────────────────────────────
+
+# Domínios LibGen SciMag conhecidos (tentados em ordem)
+_LIBGEN_SCIMAG_DOMAINS = [
+    "libgen.is",
+    "libgen.li",
+    "libgen.rs",
+]
+
+
+def _resolve_libgen(doi: str) -> str | None:
+    """Tenta resolver um DOI via LibGen SciMag JSON API.
+
+    LibGen expõe um endpoint JSON informal em /scimag/json.php?doi={doi}.
+    Constrói URL de download a partir do MD5 como fallback quando
+    download_url está ausente.
+
+    Returns:
+        URL de download direto ou None.
+    """
+    import urllib.parse
+
+    for domain in _LIBGEN_SCIMAG_DOMAINS:
+        _interrequest_delay()
+        json_url = f"https://{domain}/scimag/json.php?doi={doi}"
+        status, text = _http_get_text(json_url)
+        if status != 200:
+            continue
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+
+        if isinstance(data, list):
+            for item in data:
+                url = _extract_libgen_download_url(item)
+                if url:
+                    return url
+        elif isinstance(data, dict):
+            url = _extract_libgen_download_url(data)
+            if url:
+                return url
+
+    return None
+
+
+def _extract_libgen_download_url(item: dict) -> str | None:
+    """Extrai URL de download de um item do JSON do LibGen.
+
+    Tenta download_url direto primeiro; fallback para construção
+    via MD5 + título.
+    """
+    # Tentar campo download_url ou link direto
+    url = item.get("download_url") or item.get("link")
+    if url:
+        return url
+
+    # Fallback: construir URL a partir do MD5
+    md5 = item.get("md5")
+    if not md5:
+        return None
+
+    title = item.get("title", "paper")
+    # Sanitizar título para URL
+    safe_title = title[:100].replace(" ", "_").replace("/", "_")
+    safe_title = "".join(c for c in safe_title if c.isalnum() or c in "._-")
+    if not safe_title:
+        safe_title = "paper"
+
+    return f"https://download.library.lol/main/{md5}/{safe_title}.pdf"
+
+
+# ── Anna's Archive ───────────────────────────────────────────────────
+
+_ANNA_ARCHIVE_URL = "https://annas-archive.org"
+
+# Sinais de Cloudflare challenge no HTML
+_CLOUDFLARE_SIGNALS = [
+    "Checking your browser",
+    "Just a moment",
+    "cf-browser-verify",
+    "cf-challenge",
+]
+
+
+def _resolve_annas_archive(doi: str) -> str | None:
+    """Tenta resolver um DOI via Anna's Archive (HTML scraping).
+
+    Anna's Archive é um metasearch que agrega Sci-Hub, LibGen, Z-Library
+    e Internet Archive. Não hospeda PDFs — redireciona para a fonte original.
+
+    Returns:
+        URL direta do PDF ou None.
+    """
+    # 1. Buscar por DOI na página de search
+    _interrequest_delay()
+    search_url = f"{_ANNA_ARCHIVE_URL}/search?q={doi}"
+    status, html = _http_get_text(search_url, timeout=_HTTP_TIMEOUT)
+    if status != 200:
+        return None
+
+    # Detectar Cloudflare challenge antes de tentar parse
+    if _is_cloudflare_block(html):
+        return None
+
+    # 2. Extrair link para a página de detalhe (md5 em path ou query param)
+    md5_match = re.search(r'href="[^"]*md5[=/]([a-f0-9]{32})', html)
+    if not md5_match:
+        return None
+
+    md5_hash = md5_match.group(1)
+    detail_url = f"{_ANNA_ARCHIVE_URL}/md5/{md5_hash}"
+
+    # 3. Acessar página de detalhe para extrair link de download
+    _interrequest_delay()
+    status2, html2 = _http_get_text(detail_url, timeout=_HTTP_TIMEOUT)
+    if status2 != 200:
+        return None
+
+    if _is_cloudflare_block(html2):
+        return None
+
+    # 4. Extrair link de download — PDF direto ou IPFS
+    pdf_match = re.search(r'href="(https?://[^"]+\.pdf)"', html2)
+    if pdf_match:
+        return pdf_match.group(1)
+
+    ipfs_match = re.search(r'href="(https?://ipfs\.io/ipfs/[a-zA-Z0-9]+[^"]*)"', html2)
+    if ipfs_match:
+        return ipfs_match.group(1)
+
+    return None
+
+
+def _is_cloudflare_block(html: str) -> bool:
+    """Detecta página de bloqueio Cloudflare no HTML."""
+    html_lower = html.lower()
+    return any(signal.lower() in html_lower for signal in _CLOUDFLARE_SIGNALS)
+
+
+# ── Abstract Fallback ────────────────────────────────────────────────
+
+# Meta tags comuns para abstract em páginas de publisher
+_ABSTRACT_META_PATTERNS = [
+    re.compile(r'<meta\s+name="description"\s+content="([^"]{100,})"', re.I),
+    re.compile(r'<meta\s+name="citation_abstract"\s+content="([^"]+)"', re.I),
+    re.compile(r'<meta\s+property="og:description"\s+content="([^"]{100,})"', re.I),
+    re.compile(r'<meta\s+name="dc\.description"\s+content="([^"]{100,})"', re.I),
+]
+
+# Container estrutural para abstract (div ou section)
+_ABSTRACT_CONTAINER_PATTERN = re.compile(
+    r'<(?:div|section)[^>]*class="[^"]*abstract[^"]*"[^>]*>(.*?)</(?:div|section)>',
+    re.I | re.DOTALL,
+)
+
+# Sinais de página de login/paywall (falso positivo para abstract)
+_LOGIN_SIGNALS = [
+    "sign in", "log in", "subscribe", "purchase now",
+    "access through", "institutional access", "checkout",
+    "add to cart", "rent", "get access",
+]
+
+
+def _fetch_abstract_via_doi(doi: str) -> str | None:
+    """Tenta extrair o abstract de um paper via DOI (dx.doi.org).
+
+    Acessa a página do publisher via redirecionamento do DOI.
+    Extrai abstract de meta tags ou div/section abstract.
+    Não requer autenticação — funciona para publishers que exibem
+    abstract publicamente mesmo com paywall no PDF.
+
+    Returns:
+        Texto do abstract (até 2000 chars) ou None.
+    """
+    import html as html_mod
+
+    _interrequest_delay()
+    doi_url = f"https://doi.org/{doi}"
+    status, html_text = _http_get_text(doi_url)
+    if status != 200:
+        return None
+
+    # Descartar páginas de login/paywall
+    if _is_login_page(html_text):
+        return None
+
+    # Tentar meta tags primeiro (mais confiável)
+    for pattern in _ABSTRACT_META_PATTERNS:
+        match = pattern.search(html_text)
+        if match:
+            abstract = html_mod.unescape(match.group(1))
+            if len(abstract) >= 100:
+                return abstract[:2000]
+
+    # Fallback: container estrutural
+    match = _ABSTRACT_CONTAINER_PATTERN.search(html_text)
+    if match:
+        raw = match.group(1)
+        clean = re.sub(r'<[^>]+>', ' ', raw)
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        clean = html_mod.unescape(clean)
+        if len(clean) >= 100:
+            return clean[:2000]
+
+    return None
+
+
+def _is_login_page(html_text: str) -> bool:
+    """Detecta página de login/paywall que não contém abstract real."""
+    html_lower = html_text.lower()
+    return any(signal in html_lower for signal in _LOGIN_SIGNALS)
+
+
 # ── Orquestrador ────────────────────────────────────────────────────
+
+# Whitelist de shadow libraries válidas
+_SHADOW_LIBRARY_WHITELIST = {"scihub", "libgen", "annas_archive"}
+
 
 def resolve_fulltext(
     doi: str | None = None,
@@ -312,7 +556,7 @@ def resolve_fulltext(
     source_id: str = "S0",
     output_dir: str = "/tmp/dsr-pdfs/",
     unpaywall_email: str = "",
-    allow_scihub: bool = False,
+    shadow_libraries: list[str] | None = None,
     scihub_domain: str = "",
 ) -> dict:
     """Resolve o texto completo de uma fonte bibliográfica.
@@ -320,7 +564,11 @@ def resolve_fulltext(
     Cadeia de fallback:
       1. arXiv PDF (se arxiv_id fornecido)
       2. Unpaywall API (se doi e unpaywall_email fornecidos)
-      3. Sci-Hub (se allow_scihub=True e doi fornecido)
+      3. Shadow libraries (em ordem, se habilitadas em shadow_libraries):
+         - "scihub": Sci-Hub + mirrors (inclui SciDB)
+         - "libgen": Library Genesis SciMag
+         - "annas_archive": Anna's Archive metasearch
+      4. Abstract via DOI (fallback mínimo, sempre ativo)
 
     Args:
         doi: DOI do paper (opcional)
@@ -328,19 +576,35 @@ def resolve_fulltext(
         source_id: Identificador da fonte (para nomear o arquivo)
         output_dir: Diretório para salvar o PDF
         unpaywall_email: Email para API Unpaywall
-        allow_scihub: Habilitar fallback Sci-Hub
+        shadow_libraries: Lista de shadow libraries habilitadas, em ordem
+                          de fallback. None ou [] = nenhuma.
         scihub_domain: Domínio Sci-Hub específico (auto-detecta se vazio)
 
     Returns:
         dict: {
-            "status": "arxiv" | "oa" | "scihub" | "unavailable",
+            "status": "arxiv" | "oa" | "scihub" | "libgen" | "annas_archive"
+                     | "abstract_only" | "unavailable",
             "pdf_path": str | None,
             "pdf_url": str | None,
+            "abstract": str | None,
             "method": str,
             "error": str | None  (apenas se unavailable)
         }
     """
     os.makedirs(output_dir, exist_ok=True)
+
+    if shadow_libraries is None:
+        shadow_libraries = []
+
+    # Validar e filtrar shadow libraries desconhecidas
+    unknown = [lib for lib in shadow_libraries if lib not in _SHADOW_LIBRARY_WHITELIST]
+    if unknown:
+        import sys as _sys
+        print(
+            f"WARNING: unknown shadow libraries ignored: {unknown}",
+            file=_sys.stderr,
+        )
+    shadow_libraries = [lib for lib in shadow_libraries if lib in _SHADOW_LIBRARY_WHITELIST]
 
     # 1. arXiv PDF
     if arxiv_id:
@@ -348,7 +612,7 @@ def resolve_fulltext(
         if result:
             return result
 
-    # 2. Unpaywall
+    # 2. Unpaywall (legal)
     if doi and unpaywall_email:
         oa_info = _resolve_unpaywall(doi, unpaywall_email)
         if oa_info:
@@ -356,21 +620,48 @@ def resolve_fulltext(
             if result:
                 return result
 
-    # 3. Sci-Hub (opt-in)
-    if doi and allow_scihub:
-        domains = [scihub_domain] if scihub_domain else _SCI_HUB_DOMAINS
-        pdf_url = _try_scihub_domains(doi, domains)
-        if pdf_url:
-            result = _download_scihub_pdf(pdf_url, source_id, output_dir)
-            if result:
-                return result
+    # 3. Shadow libraries (em ordem, se habilitadas)
+    if doi:
+        if "scihub" in shadow_libraries:
+            domains = [scihub_domain] if scihub_domain else _SCI_HUB_DOMAINS
+            pdf_url = _try_scihub_domains(doi, domains)
+            if pdf_url:
+                result = _download_shadow_pdf(pdf_url, source_id, output_dir, "scihub")
+                if result:
+                    return result
+
+        if "libgen" in shadow_libraries:
+            pdf_url = _resolve_libgen(doi)
+            if pdf_url:
+                result = _download_shadow_pdf(pdf_url, source_id, output_dir, "libgen")
+                if result:
+                    return result
+
+        if "annas_archive" in shadow_libraries:
+            pdf_url = _resolve_annas_archive(doi)
+            if pdf_url:
+                result = _download_shadow_pdf(pdf_url, source_id, output_dir, "annas_archive")
+                if result:
+                    return result
+
+    # 4. Abstract via DOI (fallback mínimo, sempre ativo)
+    if doi:
+        abstract = _fetch_abstract_via_doi(doi)
+        if abstract:
+            return {
+                "status": "abstract_only",
+                "pdf_path": None,
+                "pdf_url": None,
+                "abstract": abstract[:2000],
+                "method": "doi_abstract",
+            }
 
     # Fallback: indisponível
     error_parts = []
     if doi and not unpaywall_email:
         error_parts.append("Unpaywall not configured (unpaywall_email empty)")
-    if doi and not allow_scihub:
-        error_parts.append("Sci-Hub disabled (allow_scihub=false)")
+    if doi and not shadow_libraries:
+        error_parts.append("No shadow libraries enabled")
     if not doi and not arxiv_id:
         error_parts.append("No DOI or arXiv ID provided")
 
@@ -378,6 +669,7 @@ def resolve_fulltext(
         "status": "unavailable",
         "pdf_path": None,
         "pdf_url": None,
+        "abstract": None,
         "method": "none",
         "error": "; ".join(error_parts) if error_parts else "All methods exhausted",
     }
@@ -393,7 +685,8 @@ def resolve_all_fulltext(
     inventory_path: str,
     output_dir: str,
     unpaywall_email: str = "",
-    allow_scihub: bool = False,
+    shadow_libraries: list[str] | None = None,
+    scihub_domain: str = "",
 ) -> str:
     """Lê 02-source-inventory.md, extrai DOI e arXiv ID, resolve em batch.
 
@@ -405,12 +698,18 @@ def resolve_all_fulltext(
     except (OSError, FileNotFoundError):
         return json.dumps({"error": f"Inventory not found: {inventory_path}", "results": {}})
 
+    if shadow_libraries is None:
+        shadow_libraries = []
+
     results = {}
-    summary = {"total": 0, "arxiv": 0, "oa": 0, "scihub": 0, "unavailable": 0}
+    summary = {"total": 0, "arxiv": 0, "oa": 0, "unavailable": 0, "abstract_only": 0}
+    for lib in shadow_libraries:
+        if lib in _SHADOW_LIBRARY_WHITELIST:
+            summary[lib] = 0
 
     # Extrair source_id + texto da linha da tabela
     source_rows = re.findall(
-        r'\|\s*(S\d+|CODE-\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+)\s*\|\s*\d\s*\|',
+        r'\|\s*([A-Z]+\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+)\s*\|\s*\d\s*\|',
         inventory_text
     )
 
@@ -443,14 +742,14 @@ def resolve_all_fulltext(
             source_id=sid.strip(),
             output_dir=output_dir,
             unpaywall_email=unpaywall_email,
-            allow_scihub=allow_scihub,
+            shadow_libraries=shadow_libraries,
+            scihub_domain=scihub_domain,
         )
         results[sid.strip()] = result
 
         # Atualizar sumário
         status = result.get("status", "unavailable")
-        if status in summary:
-            summary[status] = summary.get(status, 0) + 1
+        summary[status] = summary.get(status, 0) + 1
 
     return json.dumps({"results": results, "summary": summary}, indent=2)
 
