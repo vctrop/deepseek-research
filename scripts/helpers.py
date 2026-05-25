@@ -339,6 +339,57 @@ def build_subagent_prompt(
     return builder(**kwargs)
 
 
+def config_read(project_root: str = ".") -> dict:
+    """Lê .deepseek/deepseek-research.toml e retorna os valores como dict.
+
+    Valores são retornados com tipos nativos (bool, str, int, list) —
+    prontos para consumo programático. Diferente de config_ensure(),
+    que apenas verifica/corrige o arquivo.
+
+    Args:
+        project_root: Caminho para o root do projeto (default: cwd).
+
+    Returns:
+        Dict com todas as chaves encontradas. Chaves ausentes ou arquivo
+        inexistente resultam em dict vazio para aquela chave.
+    """
+    import tomllib
+    from pathlib import Path
+
+    root = Path(project_root).resolve()
+    config_path = root / ".deepseek" / "deepseek-research.toml"
+
+    if not config_path.exists():
+        return {}
+
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+        result = tomllib.loads(raw)
+        # Retrocompatibilidade: se allow_scihub=true mas shadow_libraries
+        # não existe ou está vazio, adicionar "scihub" automaticamente.
+        # REMOVER em v4.0.
+        if result.get("allow_scihub") and not result.get("shadow_libraries"):
+            result["shadow_libraries"] = ["scihub"]
+        return result
+    except Exception:
+        # Fallback: regex básico para key = value
+        result: dict = {}
+        for line in raw.splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                # Converter bool e int
+                if val.lower() in ("true", "false"):
+                    result[key] = val.lower() == "true"
+                elif val.lstrip("-").isdigit():
+                    result[key] = int(val)
+                else:
+                    result[key] = val
+        return result
+
+
 def config_ensure(project_root: str = ".") -> str:
     """Verifica e corrige o arquivo .deepseek/deepseek-research.toml.
 
@@ -365,7 +416,7 @@ def config_ensure(project_root: str = ".") -> str:
         "bibliography_path": '"bibliography/"',
         "oss_clone_dir": '"oss/"',
         "unpaywall_email": '""',
-        "allow_scihub": "false",
+        "shadow_libraries": "[]",
         "scihub_domain": '""',
     }
 
