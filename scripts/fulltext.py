@@ -34,6 +34,7 @@ print(json.dumps(result))
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -56,7 +57,6 @@ BROWSER_HEADERS = {
         "image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
 }
@@ -90,6 +90,7 @@ def _http_get(url: str, headers: dict | None = None, timeout: int = _HTTP_TIMEOU
     """HTTP GET com headers de browser. Retorna (status_code, body_bytes, content_length).
 
     content_length é extraído do header Content-Length, ou 0 se ausente.
+    Decompõe automaticamente respostas gzip/deflate.
     """
     if headers is None:
         headers = dict(BROWSER_HEADERS)
@@ -97,6 +98,12 @@ def _http_get(url: str, headers: dict | None = None, timeout: int = _HTTP_TIMEOU
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read()
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
+            if "gzip" in content_encoding:
+                body = gzip.decompress(body)
+            elif "deflate" in content_encoding:
+                import zlib
+                body = zlib.decompress(body)
             clen = int(resp.headers.get("Content-Length", 0))
             return resp.status, body, clen
     except urllib.error.HTTPError as e:
@@ -132,6 +139,9 @@ def _download_binary(url: str, output_path: str, headers: dict | None = None) ->
         return False
 
     if status == 200 and body:
+        # Validar que o conteúdo é realmente um PDF (se extensão for .pdf)
+        if output_path.endswith(".pdf") and not body.startswith(b"%PDF"):
+            return False
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "wb") as f:
             f.write(body)
@@ -623,7 +633,14 @@ def resolve_fulltext(
     # 3. Shadow libraries (em ordem, se habilitadas)
     if doi:
         if "scihub" in shadow_libraries:
-            domains = [scihub_domain] if scihub_domain else _SCI_HUB_DOMAINS
+            # Normalizar scihub_domain: remover protocolo e trailing slash
+            if scihub_domain:
+                domain = scihub_domain.strip()
+                domain = re.sub(r'^https?://', '', domain)
+                domain = domain.rstrip('/')
+                domains = [domain] if domain else _SCI_HUB_DOMAINS
+            else:
+                domains = _SCI_HUB_DOMAINS
             pdf_url = _try_scihub_domains(doi, domains)
             if pdf_url:
                 result = _download_shadow_pdf(pdf_url, source_id, output_dir, "scihub")
