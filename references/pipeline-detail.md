@@ -199,18 +199,20 @@ DOI e arXiv ID são extraídos automaticamente via regex do texto das linhas.
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
 
-_allow_scihub_raw = "{allow_scihub}"
-try:
-    allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
-except (KeyError, AttributeError):
-    allow_scihub = False
+# Ler config do projeto (sem dependência de interpolação do LLM)
+from helpers import config_read
+cfg = config_read(".")
+unpaywall_email = cfg.get("unpaywall_email", "")
+shadow_libraries = cfg.get("shadow_libraries", [])
+scihub_domain = cfg.get("scihub_domain", "")
 
 from fulltext import resolve_all_fulltext
 result_json = resolve_all_fulltext(
     inventory_path="{session_dir}/02-source-inventory.md",
     output_dir="{session_dir}/pdfs/",
-    unpaywall_email="{unpaywall_email}",
-    allow_scihub=allow_scihub,
+    unpaywall_email=unpaywall_email,
+    shadow_libraries=shadow_libraries,
+    scihub_domain=scihub_domain,
 )
 result = json.loads(result_json)
 print(f"Total: {result['summary']['total']} | "
@@ -229,21 +231,28 @@ DOI (`10.XXXX/...`) e arXiv ID (`arXiv:YYMM.NNNNN`) no texto de cada linha
 do inventory. Fontes com type != "paper" são puladas.
 
 **Cadeia de fallback por fonte:**
-1. **arXiv PDF:** `GET https://arxiv.org/pdf/{id}.pdf` → salvar → `read_file`
+1. **arXiv PDF:** `GET https://arxiv.org/pdf/{id}.pdf` → salvar
 2. **Unpaywall API:** `GET https://api.unpaywall.org/v2/{doi}?email={email}`
    → extrair `best_oa_location.url_for_pdf` → baixar PDF
-3. **Sci-Hub (opt-in):** `GET https://sci-hub.{domain}/{doi}` → extrair URL
+3. **Sci-Hub (opt-in):** `GET https://sci-hub.{domain}/{doi}` → extrair URL do PDF
+4. **Library Genesis (opt-in):** `GET https://{domain}/scimag/json.php?doi={doi}`
+   → extrair `download_url` ou construir via MD5 → baixar PDF
+5. **Anna's Archive (opt-in):** HTML scraping em `annas-archive.org/search?q={doi}`
+   → extrair link de download ou IPFS → baixar PDF
+6. **Abstract via DOI:** `GET https://doi.org/{doi}` → extrair abstract de meta tags
+   ou container estrutural (fallback mínimo, sempre ativo)
 
 **Config necessária:**
 ```toml
 # .deepseek/deepseek-research.toml
 unpaywall_email = "researcher@example.com"  # requerido para Unpaywall
-allow_scihub = false                         # default: off
+shadow_libraries = ["scihub", "libgen"]      # shadow libraries em ordem de fallback
 scihub_domain = ""                           # auto-detect if empty
 ```
 
 **Tratamento de bordas:** 403/Cloudflare → UNVERIFIABLE; PDF > 50MB → skip;
-PDF scaneado → FAILED; Captcha Sci-Hub → próximo domínio → UNVERIFIABLE.
+PDF scaneado → FAILED; página de login/paywall → abstract descartado;
+Cloudflare JS challenge → shadow library retorna None e tenta próxima.
 
 **Resultado:** `pdfs/mapping.json` mapeia source_id → {pdf_path, status, method}.
 O Stage 4 lê este arquivo para decidir entre `read_file(pdf_path)` e fallback.

@@ -31,16 +31,17 @@ completude estrutural, não verdade. Report final DEVE incluir Methodological No
 | `deep_reading` | `true` | Habilitar deep reading |
 | `oss_clone_dir` | `"oss/"` | Clone de repositórios (T5) |
 | `unpaywall_email` | `""` | Email para Unpaywall API (requerido para OA lookup; vazio = desabilitado) |
-| `allow_scihub` | `false` | Habilitar fallback Sci-Hub para papers sem OA copy (⚠ use por sua conta e risco) |
+| `shadow_libraries` | `[]` | Shadow libraries habilitadas em ordem de fallback. Opções: `"scihub"` (Sci-Hub + SciDB), `"libgen"` (Library Genesis SciMag), `"annas_archive"` (Anna's Archive). Ex: `["scihub", "libgen"]`. ⚠ use por sua conta e risco — ver políticas da sua instituição |
 | `scihub_domain` | `""` | Domínio Sci-Hub específico (auto-detecta se vazio) |
 
 Opcional: `.deepseek/deepseek-research.toml` com estas mesmas 10 variáveis.
 Placeholders `{output_dir}`, `{date}-{slug}`, `{RQ}`, `{SKILL_DIR}`,
 `{bibliography_path}`, `{session_dir}`, `{oss_clone_dir}`, `{iso8601_utc}`,
-`{skill_git_hash}`, `{model_id}`, `{date}`, `{slug}`, `{unpaywall_email}`,
-`{allow_scihub}`, `{scihub_domain}` são interpolados pelo
+`{skill_git_hash}`, `{model_id}`, `{date}`, `{slug}` são interpolados pelo
 orquestrador. `{SKILL_DIR}` → diretório de instalação da skill.
-`{allow_scihub}` é interpolado como `True` ou `False` (Python literal).
+Configurações de PDF acquisition (`unpaywall_email`, `allow_scihub`,
+`scihub_domain`) são lidas diretamente do `.toml` via `config_read()`
+no Stage 3.1 — não são placeholders.
 
 ## Quick Reference
 
@@ -195,19 +196,20 @@ processa todas as fontes do inventory via `resolve_all_fulltext()`:
 code_execution(code='''
 import sys, json; sys.path.insert(0, "{SKILL_DIR}/scripts")
 
-# O orquestrador interpola {allow_scihub} como True ou False.
-_allow_scihub_raw = "{allow_scihub}"
-try:
-    allow_scihub = {"true": True, "false": False}[_allow_scihub_raw.strip().lower()]
-except (KeyError, AttributeError):
-    allow_scihub = False
+# Ler config do projeto (sem dependência de interpolação do LLM)
+from helpers import config_read
+cfg = config_read(".")
+unpaywall_email = cfg.get("unpaywall_email", "")
+shadow_libraries = cfg.get("shadow_libraries", [])
+scihub_domain = cfg.get("scihub_domain", "")
 
 from fulltext import resolve_all_fulltext
 result_json = resolve_all_fulltext(
     inventory_path="{session_dir}/02-source-inventory.md",
     output_dir="{session_dir}/pdfs/",
-    unpaywall_email="{unpaywall_email}",
-    allow_scihub=allow_scihub,
+    unpaywall_email=unpaywall_email,
+    shadow_libraries=shadow_libraries,
+    scihub_domain=scihub_domain,
 )
 result = json.loads(result_json)
 print(f"Total: {result['summary']['total']} | arxiv: {result['summary'].get('arxiv', 0)} | oa: {result['summary'].get('oa', 0)} | unavailable: {result['summary'].get('unavailable', 0)}")
