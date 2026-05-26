@@ -1,0 +1,8 @@
+# <tipo>(<escopo>): <resumo curto, máximo 72 caracteres>
+# 
+# <corpo — parágrafos com 72 colunas explicando o quê e por quê>
+# 
+# Co-authored by DeepSeek-V4
+# 
+# Tipos: feat, fix, docs, refactor, test, audit
+# Escopos: pipeline, bibliography, codebase, templates, scripts, config, docs, close

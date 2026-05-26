@@ -54,3 +54,4 @@ SKILL.md (~220L)          → Orchestrator entry point. 5-stage pipeline.
 
 - Prefix: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `audit:`
 - Scope in parens: `feat(bibliography):`, `fix(pipeline):`, `docs(templates):`
+- **Every commit message MUST include `Co-authored by DeepSeek-V4`** as the final line of the body (before any trailers). This is a mandatory attribution tag for all work produced with DeepSeek assistance.
