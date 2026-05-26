@@ -64,3 +64,5 @@ timestamp_utc: {iso8601_utc}
 **Registered in:** `protocol-freeze.json`
 Any post-Stage-2 changes to RQ, scope, or criteria must be documented as
 post-hoc refinements in the Methodological Note of the final report.
+
+<!-- STAGE_COMPLETE -->

@@ -59,7 +59,8 @@ def test_file_integrity():
     ]
     expected_scripts = [
         "helpers", "prompts", "topic_extractor",
-        "index_sources", "fulltext",
+        "index_sources", "fulltext", "verify_title_match",
+        "stage_status", "pipeline_metrics",
     ]
     expected_templates = [
         "rq-brief", "source-inventory", "source-verification", "synthesis",
@@ -91,13 +92,14 @@ def test_scripts():
     print("\n=== Test 2: Script Importability ===")
 
     sys.path.insert(0, str(SKILL_DIR / "scripts"))
+    sys.path.insert(0, str(SKILL_DIR / "tests"))
 
     # helpers.py
     try:
         from helpers import (
             compute_sha256, resolve_placeholders,
             build_subagent_prompt, compute_saturation,
-            config_ensure,
+            config_ensure, check_coverage_grade_consistency,
         )
         check("helpers.py import", True)
 
@@ -131,6 +133,21 @@ def test_scripts():
         # compute_saturation with empty dir
         sat = compute_saturation("/nonexistent/deep-reads/", "test RQ")
         check("compute_saturation returns False for nonexistent dir", not sat)
+
+        # check_coverage_grade_consistency
+        cov_result = check_coverage_grade_consistency(
+            "/nonexistent/deep-reads/", "/nonexistent/synthesis.md"
+        )
+        import json
+        cov_parsed = json.loads(cov_result)
+        check("check_coverage_grade_consistency returns valid JSON",
+              isinstance(cov_parsed, dict))
+        # GATE-9 key is only present when synthesis file exists (not early-return).
+        # When synthesis is missing, the function returns {"pass": True, "note": ..., "violations": []}
+        check("check_coverage_grade_consistency has pass key",
+              "pass" in cov_parsed)
+        check("check_coverage_grade_consistency has violations key",
+              "violations" in cov_parsed)
 
         # config_ensure
         import tempfile, tomllib
@@ -166,7 +183,7 @@ def test_scripts():
 
     # prompts.py
     try:
-        from prompts import _build_bibliography_prompt, _build_code_prompt, _build_per_topic_queries
+        from prompts import _build_bibliography_prompt, _build_code_prompt, _build_per_topic_queries, _build_verify_titles_prompt
         check("prompts.py import", True)
 
         per_topic = _build_per_topic_queries("TBT,CBH", '"limitations of {topic}"')
@@ -178,6 +195,22 @@ def test_scripts():
 
         code_prompt = _build_code_prompt("test RQ")
         check("_build_code_prompt returns string", len(code_prompt) > 0)
+
+        # Test dsr-verify-titles prompt builder
+        import json
+        test_sources = json.dumps([
+            {"source_id": "S1", "reported_title": "Test Paper", "url": "https://example.com/paper"}
+        ])
+        verify_prompt = _build_verify_titles_prompt(test_sources)
+        check("_build_verify_titles_prompt returns string", len(verify_prompt) > 0)
+        check("_build_verify_titles_prompt includes source_id",
+              "S1" in verify_prompt)
+        check("_build_verify_titles_prompt includes URL",
+              "https://example.com/paper" in verify_prompt)
+        check("_build_verify_titles_prompt includes match heuristic",
+              "match_pct" in verify_prompt)
+        check("_build_verify_titles_prompt includes output path",
+              "/tmp/dsr-verify-results.json" in verify_prompt)
 
     except Exception as e:
         check("prompts.py import", False, str(e))
@@ -303,10 +336,11 @@ def test_skill_consistency():
     for s in ["Phase 0", "Phase 1.5", "Stage 1", "Stage 2", "Stage 3", "Stage 4", "Stage 5"]:
         check(f"SKILL.md mentions {s}", s in skill_text)
 
-    # 10 gates (v3.0)
+    # 10 gates (v3.0) + GATE-0b (v3.2)
     gates = [f"GATE-{i}" for i in range(1, 11)]
     for g in gates:
         check(f"SKILL.md mentions {g}", g in skill_text)
+    check("SKILL.md mentions GATE-0b", "GATE-0b" in skill_text)
 
     # Pipeline overview
     for token in ["RQ Formulation", "Source Discovery", "Source Verification",
@@ -398,6 +432,177 @@ def test_template_refs():
 
 
 # ═══════════════════════════════════════════════════════════════════
+# TEST 8: Verification gate fixtures
+# ═══════════════════════════════════════════════════════════════════
+def test_verification_gates():
+    print("\n=== Test 8: Verification Gate Fixtures ===")
+
+    fixtures_dir = SKILL_DIR / "tests" / "fixtures"
+    if not fixtures_dir.exists():
+        print("  [SKIP] tests/fixtures/ directory not found")
+        return
+
+    import json
+
+    # GATE-6: verify_completeness
+    try:
+        from verify_completeness import check as gate6
+
+        # complete-pass should PASS
+        result = json.loads(gate6(
+            str(fixtures_dir / "complete-pass" / "02-source-inventory.md"),
+            str(fixtures_dir / "complete-pass" / "03-source-verification.md"),
+        ))
+        check("GATE-6: complete-pass fixture passes",
+              result["pass"] is True,
+              f"violations: {result.get('violations', [])}")
+
+        # missing-status should FAIL
+        result = json.loads(gate6(
+            str(fixtures_dir / "missing-status" / "02-source-inventory.md"),
+            str(fixtures_dir / "missing-status" / "03-source-verification.md"),
+        ))
+        check("GATE-6: missing-status fixture fails",
+              result["pass"] is False)
+        check("GATE-6: missing-status detects S2",
+              any("S2" in v for v in result.get("violations", [])),
+              f"violations: {result.get('violations', [])}")
+    except Exception as e:
+        check("GATE-6 fixture tests", False, str(e))
+
+    # GATE-7: verify_evidence_grades
+    try:
+        from verify_evidence_grades import check as gate7
+
+        # complete-pass should PASS
+        result = json.loads(gate7(
+            str(fixtures_dir / "complete-pass" / "deep-reads")
+        ))
+        check("GATE-7: complete-pass fixture passes",
+              result["pass"] is True,
+              f"violations: {result.get('violations', [])}")
+
+        # snippet-v-grade should FAIL
+        result = json.loads(gate7(
+            str(fixtures_dir / "snippet-v-grade" / "deep-reads")
+        ))
+        check("GATE-7: snippet-v-grade fixture fails",
+              result["pass"] is False)
+        check("GATE-7: snippet-v-grade detects V-grade from snippet",
+              any("V-grade" in v or "snippet" in v.lower() for v in result.get("violations", [])),
+              f"violations: {result.get('violations', [])}")
+    except Exception as e:
+        check("GATE-7 fixture tests", False, str(e))
+
+    # GATE-8: verify_source_refs
+    try:
+        from verify_source_refs import check as gate8
+
+        # complete-pass should PASS
+        result = json.loads(gate8(
+            str(fixtures_dir / "complete-pass" / "02-source-inventory.md"),
+            str(fixtures_dir / "complete-pass" / "04-synthesis.md"),
+            str(fixtures_dir / "complete-pass" / "05-report.md"),
+        ))
+        check("GATE-8: complete-pass fixture passes",
+              result["pass"] is True,
+              f"violations: {result.get('violations', [])}")
+
+        # ghost-source should FAIL
+        result = json.loads(gate8(
+            str(fixtures_dir / "ghost-source" / "02-source-inventory.md"),
+            str(fixtures_dir / "ghost-source" / "04-synthesis.md"),
+            str(fixtures_dir / "ghost-source" / "05-report.md"),
+        ))
+        check("GATE-8: ghost-source fixture fails",
+              result["pass"] is False)
+        check("GATE-8: ghost-source detects S99",
+              any("S99" in v for v in result.get("violations", [])),
+              f"violations: {result.get('violations', [])}")
+    except Exception as e:
+        check("GATE-8 fixture tests", False, str(e))
+
+    # GATE-2: check_iron_rule_c_deterministic (bare-claim fixture)
+    try:
+        from helpers import check_iron_rule_c_deterministic
+
+        # bare-claim should FAIL (has "guarantees", "conclusively", "validated")
+        result = json.loads(check_iron_rule_c_deterministic(
+            str(fixtures_dir / "bare-claim" / "05-report.md"),
+            str(fixtures_dir / "bare-claim" / "04-synthesis.md"),
+        ))
+        check("GATE-2: bare-claim fixture fails",
+              result["pass"] is False,
+              f"result: {result}")
+        check("GATE-2: bare-claim detects bare words",
+              len(result.get("violations", [])) > 0,
+              f"got {len(result.get('violations', []))} violations")
+
+        # complete-pass should PASS (has qualified language)
+        result = json.loads(check_iron_rule_c_deterministic(
+            str(fixtures_dir / "complete-pass" / "05-report.md"),
+            str(fixtures_dir / "complete-pass" / "04-synthesis.md"),
+        ))
+        check("GATE-2: complete-pass fixture passes",
+              result["pass"] is True,
+              f"violations: {result.get('violations', [])}")
+    except Exception as e:
+        check("GATE-2 fixture tests", False, str(e))
+
+    # GATE-9: check_coverage_grade_consistency (low-coverage-strong fixture)
+    try:
+        from helpers import check_coverage_grade_consistency
+
+        # low-coverage-strong should FAIL (STRONG from 10% coverage)
+        result = json.loads(check_coverage_grade_consistency(
+            str(fixtures_dir / "low-coverage-strong" / "deep-reads"),
+            str(fixtures_dir / "low-coverage-strong" / "04-synthesis.md"),
+        ))
+        check("GATE-9: low-coverage-strong fixture fails",
+              result["pass"] is False,
+              f"result: {result}")
+        check("GATE-9: low-coverage-strong detects coverage issue",
+              any("coverage" in v.lower() or "10" in v for v in result.get("violations", [])),
+              f"violations: {result.get('violations', [])}")
+
+        # complete-pass should PASS
+        result = json.loads(check_coverage_grade_consistency(
+            str(fixtures_dir / "complete-pass" / "deep-reads"),
+            str(fixtures_dir / "complete-pass" / "04-synthesis.md"),
+        ))
+        check("GATE-9: complete-pass fixture passes",
+              result["pass"] is True,
+              f"violations: {result.get('violations', [])}")
+    except Exception as e:
+        check("GATE-9 fixture tests", False, str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TEST 9: Topic extractor validation
+# ═══════════════════════════════════════════════════════════════════
+def test_topic_extractor_validation():
+    print("\n=== Test 9: Topic Extractor Validation ===")
+    try:
+        from test_topic_extractor import run_all as run_topic_tests
+        pass_count, fail_count, results = run_topic_tests()
+        for r in results:
+            check(
+                f"topic_extractor: {r['rq_preview'][:60]}",
+                r["passed"],
+                f"recall={r['recall']:.0%}, found={r['found']}",
+            )
+        # Overall passing threshold: ≥80% average recall
+        avg_recall = sum(r["recall"] for r in results) / len(results) if results else 0
+        check(
+            f"topic_extractor average recall ≥ 80%",
+            avg_recall >= 0.80,
+            f"got {avg_recall:.0%}",
+        )
+    except Exception as e:
+        check("topic_extractor validation", False, str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════
 def main():
@@ -412,6 +617,8 @@ def main():
     test_iron_rule_c()
     test_taxonomy()
     test_template_refs()
+    test_verification_gates()
+    test_topic_extractor_validation()
 
     total = pass_count + fail_count
     print(f"\n{'='*50}")

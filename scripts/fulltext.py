@@ -761,22 +761,39 @@ def resolve_all_fulltext(
         col4 = parts[4] if len(parts) > 4 else ""
         col5 = parts[5] if len(parts) > 5 else ""
 
-        # Heurística de detecção de formato:
-        # - DOI válido começa com "10." e tem "/"
-        # - "N/A" explícito indica formato novo sem DOI
-        # - Número 1-5 indica formato antigo (coluna Relevance)
+        # Detecção de formato: primeiro verificar <!-- schema: --> header,
+        # depois fallback para heurísticas.
+        schema_v2 = "<!-- schema: v2" in inventory_text
+
         is_new_format = False
-        if col4.startswith("10.") and "/" in col4:
-            doi = col4.rstrip(".")
+        if schema_v2:
+            # Formato explícito: coluna 4 é DOI, não Relevance
             is_new_format = True
-        elif col4.upper() == "N/A":
-            is_new_format = True  # formato novo, DOI explicitamente ausente
-            # DOI permanece None — tentar extrair do texto da linha como fallback
-        elif col4.isdigit() and 1 <= int(col4) <= 5:
-            is_new_format = False  # formato antigo
-        else:
-            # Ambíguo: tratar como formato antigo, usar regex fallback
-            is_new_format = False
+            if col4.upper() == "N/A":
+                pass  # DOI permanece None
+            elif col4.startswith("10.") and "/" in col4:
+                doi = col4.rstrip(".")
+            else:
+                # Coluna DOI com valor inesperado — tentar regex fallback
+                doi = None
+
+        # Fallback heurístico quando schema header ausente (backward compat)
+        if not schema_v2:
+            # Heurística de detecção de formato:
+            # - DOI válido começa com "10." e tem "/"
+            # - "N/A" explícito indica formato novo sem DOI
+            # - Número 1-5 indica formato antigo (coluna Relevance)
+            if col4.startswith("10.") and "/" in col4:
+                doi = col4.rstrip(".")
+                is_new_format = True
+            elif col4.upper() == "N/A":
+                is_new_format = True  # formato novo, DOI explicitamente ausente
+                # DOI permanece None — tentar extrair do texto da linha como fallback
+            elif col4.isdigit() and 1 <= int(col4) <= 5:
+                is_new_format = False  # formato antigo
+            else:
+                # Ambíguo: tratar como formato antigo, usar regex fallback
+                is_new_format = False
 
         # No formato novo, o texto completo da linha (location + type + ...)
         # pode conter arXiv ID ou DOI inline não capturado na coluna

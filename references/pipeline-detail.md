@@ -167,7 +167,24 @@ Stage 3.1 para habilitar shadow libraries e Unpaywall.
 ID que não corresponde ao paper alegado). Toda fonte com URL DEVE ser verificada
 antes de ser considerada ACCESSIBLE.
 
-**Procedimento por fonte:**
+**Caminho preferencial: Sub-agent Flash (dsr-verify-titles)**
+Para 5+ fontes com URL, descarregue a verificação em lote para um sub-agent Flash:
+
+```
+# 1. Extrair fontes com URL do inventory
+code_execution(code="import sys, json; sys.path.insert(0, '{SKILL_DIR}/scripts'); from verify_title_match import _extract_sources_with_url; from pathlib import Path; sources = _extract_sources_with_url(Path('{session_dir}/02-source-inventory.md')); print(json.dumps([{{'source_id': k, 'reported_title': v.get('reported_title', ''), 'url': v.get('url', '')}} for k, v in sources.items()], indent=2))")
+
+# 2. Gerar prompt e disparar sub-agent
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import build_subagent_prompt; print(build_subagent_prompt('dsr-verify-titles', source_list_json='<JSON da etapa 1>'))")
+agent_open(name="dsr-verify-titles", model="deepseek-v4-flash", allowed_tools=["fetch_url", "write_file"], prompt=<output>)
+agent_eval(agent_id="...", block=true, timeout_ms=900000)
+
+# 3. Copiar resultados para a sessão
+read_file("/tmp/dsr-verify-results.md")  # ou fetch do JSON
+write_file("{session_dir}/03-gate0-results.json", content=<JSON copiado>)
+```
+
+**Caminho manual (fallback para ≤4 fontes ou se Flash indisponível):**
 ```
 Para cada fonte com URL:
   1. fetch_url("{url}") — verificar HTTP status.
@@ -190,6 +207,39 @@ Para cada fonte com URL:
      c. 404/403/Timeout: UNVERIFIABLE
   4. Fontes sem URL (arquivos locais, código): verificar via read_file.
 ```
+
+### 3.0.1 Checkpoint JSON (OBRIGATÓRIO)
+
+Após completar GATE-0 (por qualquer caminho), o orquestrador DEVE escrever
+`{session_dir}/03-gate0-results.json` com o schema de checkpoint:
+
+```json
+{
+  "gate": "GATE-0",
+  "timestamp_utc": "{iso8601_utc}",
+  "verifications": [
+    {
+      "source_id": "S1",
+      "reported_title": "ChatQA 2: Bridging the Gap to GPT-4",
+      "fetched_url": "https://arxiv.org/abs/2407.16833",
+      "page_title": "ChatQA 2: Bridging the Rag to GPT-4V",
+      "match_keywords_reported": ["chatqa", "bridging", "gap"],
+      "match_keywords_found": ["chatqa", "bridging"],
+      "match_pct": 66.7,
+      "verdict": "MATCH",
+      "notes": "Minor title variation (Rag vs Gap)"
+    }
+  ],
+  "summary": {
+    "total_with_url": 6,
+    "match": 4,
+    "mismatch": 1,
+    "unverifiable": 1
+  }
+}
+```
+
+Este checkpoint é verificado deterministicamente por GATE-0b no Close phase.
 
 **⚠ A categoria "ACCESSIBLE (inferred)" está abolida.** Se uma fonte não pôde
 ser verificada (ex: busca web rate-limited), ela é UNVERIFIABLE, não "inferred
@@ -400,7 +450,25 @@ Cada fonte gera `deep-reads/{source_id}.md` com:
    - Viés: single-reviewer, LLM-based judgment, possible selection bias.
    - Limitações: cobertura temporal, idioma, acessibilidade.
    - Confiança: confidence labels são orientações, não medidas estatísticas.
-7. Escrever `05-report.md`.
+7. **5b. Write 2-3 paragraphs of session-specific limitations** for the
+   `{session_specific_limitations}` placeholder in the Methodological Note:
+   - How many sources were paywalled/inaccessible?
+   - Which axes failed or underperformed?
+   - Any sub-agent failures or timeouts?
+   - Any sources downgraded due to coverage or access method?
+   - Any mathematical claims requiring human verification?
+   Be concrete. Do not reuse generic language from the template.
+
+   Example of good session-specific limitations:
+   > **This session:** 3 of 12 bibliography sources were paywalled
+   > (Springer, Elsevier) and only abstracts were available. The Sci-Hub
+   > fallback was disabled. The codebase axis failed because the primary
+   > repository was private. Source S4 was downgraded from V-grade to
+   > I-grade because only 23% of the document was processed (T4 selective
+   > reading). Finding K3 contains mathematical claims (M-grade) that
+   > require human verification.
+
+8. Escrever `05-report.md`.
 
 ---
 
@@ -420,6 +488,14 @@ Após Stage 5, persistir fontes usadas no relatório que passaram no Stage 3:
 3. **SESSION-INDEX.md:** append de uma linha com date, slug, target, mode, e
    key findings (≤280 chars). Criar o arquivo com header row se não existir.
 4. Emitir resumo: "Corpus updated: X new, Y reused."
+5. **Pipeline Metrics:** anexar ao MANIFEST.txt:
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from pipeline_metrics import compute
+print(compute("{session_dir}"))
+''')
+```
 
 ### Verification Gates
 
@@ -445,6 +521,27 @@ acessível tem RoB rating.
 grep_files(pattern="\\{[A-Za-z_]+\\}", path="{session_dir}/")
 ```
 Zero matches esperados.
+
+**GATE-0b (Title Match Checkpoint):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_title_match import check
+print(check("{session_dir}"))
+''')
+```
+
+**GATE-9 (Coverage-Grade Consistency):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import check_coverage_grade_consistency
+print(check_coverage_grade_consistency(
+    "{session_dir}/deep-reads/",
+    "{session_dir}/04-synthesis.md"
+))
+''')
+```
 
 3. Registrar resultados em `MANIFEST.txt` sob `## Gate Results`.
 4. Pipeline completo.

@@ -112,3 +112,5 @@ Claims relevant to RQ: `{RQ_TEXT}`
 **Status:** INACCESSIBLE / PARTIAL / FAILED / SNIPPET_ONLY
 **Reason:** {concrete reason — e.g., "fetch_url returned HTTP 403 (paywall)", "RLM session timed out after 120s", "Document is scanned PDF with no extractable text", "Full text not accessed; claims from search snippets only"}
 **Impact on synthesis:** {what this means for downstream stages — e.g., "This source cannot contribute V-grade evidence to synthesis", "All claims are I-grade and capped at WEAK confidence"}
+
+<!-- STAGE_COMPLETE -->

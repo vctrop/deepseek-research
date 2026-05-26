@@ -87,3 +87,5 @@ For each key finding:
 | Source ID | Credibility | P/S/T | RoB | Used in Findings | Evidence Contribution | Notes |
 |-----------|-------------|-------|-----|------------------|----------------------|-------|
 | S{n} | HIGH/MEDIUM/LOW | P/S/T | Low/Medium/High | K1, K2 | STRONG/MODERATE/WEAK | {caveats} |
+
+<!-- STAGE_COMPLETE -->

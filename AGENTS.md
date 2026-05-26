@@ -25,7 +25,8 @@ SKILL.md (~220L)          → Orchestrator entry point. 5-stage pipeline.
 
 1. **Read the architecture** above before making changes.
 2. **Run the smoke test** after any change to scripts: `python3 scripts/smoke_test.py`
-3. **After changing prompt builders**, verify both templates build:
+3. **After changing any verify_*.py script**, run smoke_test.py and verify all gate fixtures still produce expected results.
+4. **After changing prompt builders**, verify both templates build:
    ```python
    import sys; sys.path.insert(0, 'scripts')
    from helpers import build_subagent_prompt

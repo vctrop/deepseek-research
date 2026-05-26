@@ -21,9 +21,17 @@ Carregado no início do pipeline. Referenciado inline quando ocorre erro.
 
 Se o pipeline for interrompido:
 
-1. Verificar `{session_dir}` — outputs de cada stage são arquivos `.md`.
-2. Retomar do primeiro stage sem output file completo.
-3. Ex: se `03-source-verification.md` existe → começar no Stage 4.
-4. Ex: se `02-source-inventory.md` existe mas não `03-source-verification.md` →
+1. **Método preferencial:** usar `stage_status.py` para detectar o estado exato:
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from stage_status import check; print(check('{session_dir}'))")
+   ```
+   O script verifica a presença do marcador `<!-- STAGE_COMPLETE -->` no final
+   de cada arquivo de output, detectando arquivos truncados (crash durante
+   `write_file`).
+2. **Fallback manual:** verificar `{session_dir}` — outputs de cada stage são
+   arquivos `.md`.
+3. Retomar do primeiro stage sem output file completo.
+4. Ex: se `03-source-verification.md` existe → começar no Stage 4.
+5. Ex: se `02-source-inventory.md` existe mas não `03-source-verification.md` →
    começar no Stage 3.
-5. Não há `.session-state.json` — os outputs do stage são o estado.
+6. Não há `.session-state.json` — os outputs do stage são o estado.

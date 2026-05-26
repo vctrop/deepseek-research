@@ -92,3 +92,5 @@ for novel claims; secondary/tertiary for consensus.
 | Source ID | Reason |
 |-----------|--------|
 | S{n} | Duplicate / irrelevant on inspection / credibility too low |
+
+<!-- STAGE_COMPLETE -->

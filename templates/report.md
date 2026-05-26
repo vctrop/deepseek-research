@@ -100,6 +100,9 @@ This report was produced by an LLM-based rapid evidence assessment pipeline
 5. **Mathematical claims:** Any mathematical claim (M-grade) is flagged and
    requires human verification. The LLM cannot verify mathematical proofs.
 
+6. **Session-specific limitations:**
+   {session_specific_limitations}
+
 ---
 
 ## IRON RULE C Compliance
@@ -110,3 +113,5 @@ conclusive, certainly, undoubtedly, obviously, clearly) are forbidden
 without source + method + conditions qualification.
 
 Confidence language scale: HIGH / MEDIUM / LOW / SPECULATIVE.
+
+<!-- STAGE_COMPLETE -->

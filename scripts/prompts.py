@@ -120,6 +120,75 @@ The DOI column is MANDATORY in the output table — every row must have either a
 Before responding, write your COMPLETE source table, negative search results, and inaccessible-sources section to `/tmp/dsr-bibliography-results.md` using write_file. Inline response can be a summary."""
 
 
+def _build_verify_titles_prompt(source_list_json: str) -> str:
+    """Prompt para sub-agent dsr-verify-titles (Flash).
+
+    Args:
+        source_list_json: JSON string com array de {source_id, reported_title, url}.
+    """
+    return f"""Verify that the following sources actually exist at their reported URLs
+and that the page title matches the reported title.
+
+## Source List to Verify
+```json
+{source_list_json}
+```
+
+## Procedure (for EACH source)
+1. `fetch_url("{{url}}")` — check HTTP status.
+2. Extract the page title:
+   - HTML: first <h1> or <title> tag content
+   - PDF (arxiv.org/pdf/...): title from first page
+   - If fetch fails (404, 403, timeout, or non-200 status): mark as UNVERIFIABLE
+3. Compare page title to reported title using keyword match:
+   - Extract all words with 5+ characters from the reported title
+   - Remove stopwords: a, an, the, of, in, on, to, for, and, with, using, via, from
+   - Count how many of these keywords appear (case-insensitive) in the page title
+   - match_pct = (matched_keywords / total_keywords) * 100
+   - If match_pct >= 50: verdict = MATCH
+   - If match_pct < 50: verdict = MISMATCH
+   - If URL unreachable: verdict = UNVERIFIABLE
+
+## Anti-Hallucination Rules (CRITICAL)
+- NEVER fabricate a page title. If you cannot extract a title, mark as UNVERIFIABLE.
+- NEVER guess a match percentage. Compute it exactly from the extracted keywords.
+- If the page returns a login wall, Cloudflare challenge, or CAPTCHA, mark as UNVERIFIABLE.
+- If you cannot access a URL for any reason, include the HTTP status code and error in notes.
+- Do NOT mark sources as MATCH unless you have successfully fetched the URL AND extracted a title.
+
+## Output REQUIRED
+Write your COMPLETE results to `/tmp/dsr-verify-results.json` using write_file with this exact schema:
+```json
+{{
+  "gate": "GATE-0",
+  "timestamp_utc": "ISO-8601 timestamp",
+  "verifications": [
+    {{
+      "source_id": "S1",
+      "reported_title": "exact title from source list",
+      "fetched_url": "URL you fetched",
+      "page_title": "extracted title from page or 'UNREACHABLE'",
+      "match_keywords_reported": ["keyword1", "keyword2"],
+      "match_keywords_found": ["matched1"],
+      "match_pct": 50.0,
+      "verdict": "MATCH",
+      "notes": "brief note on any discrepancies or issues"
+    }}
+  ],
+  "summary": {{
+    "total_with_url": 0,
+    "match": 0,
+    "mismatch": 0,
+    "unverifiable": 0
+  }}
+}}
+```
+
+## CRITICAL: Write ALL results to file BEFORE responding
+Use write_file to save the complete JSON to `/tmp/dsr-verify-results.json`.
+Inline response can be a brief summary of counts (X MATCH, Y MISMATCH, Z UNVERIFIABLE)."""
+
+
 def _build_code_prompt(rq_text: str) -> str:
     """Prompt para sub-agent dsr-code."""
     return f"""Search project codebase for implementations, patterns, docs relevant to: {rq_text}

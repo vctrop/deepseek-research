@@ -67,8 +67,11 @@ Stage 5:  Synthesis + Report   → 04-synthesis.md, 05-report.md
 Close:    Persistence + Gates  → MANIFEST.txt, SESSION-INDEX.md
 ```
 
-**Resume from interruption:** retome do último estágio com output file completo.
-Se `03-source-verification.md` existe, retome do Stage 4.
+**Resume from interruption:** use `stage_status.py` para detectar o próximo estágio:
+```
+code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from stage_status import check; print(check('{session_dir}'))")
+```
+Se `03-source-verification.md` existe, retome do Stage 4 (fallback manual).
 
 ---
 
@@ -342,6 +345,15 @@ Para fontes usadas no relatório que sobreviveram ao Stage 3 (ACCESSIBLE):
 
 4. Emitir resumo: "Corpus updated: {X} new sources indexed, {Y} local sources reused."
 
+5. **Pipeline Metrics:** computar e anexar ao MANIFEST.txt:
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from pipeline_metrics import compute
+print(compute("{session_dir}"))
+''')
+```
+
 ### Verification Gates (10 gates)
 
 | Gate | Tipo | Descrição |
@@ -354,8 +366,9 @@ Para fontes usadas no relatório que sobreviveram ao Stage 3 (ACCESSIBLE):
 | GATE-6 | **Automático** | Verification Completeness — `verify_completeness.py` |
 | GATE-7 | **Automático** | Evidence Grade Sanity — `verify_evidence_grades.py` |
 | GATE-8 | **Automático** | Source Ref Cross-Check — `verify_source_refs.py` |
-| GATE-9 | Manual | Coverage-Grade Consistency — `check_coverage_grade_consistency()` |
+| GATE-9 | **Automático** | Coverage-Grade Consistency — `check_coverage_grade_consistency()` |
 | GATE-10 | Manual | Batch PDF Acquisition — `resolve_all_fulltext()` executado no Stage 3 |
+| GATE-0b | **Automático** | Title Match Checkpoint Verification — `verify_title_match.py` |
 
 ### Gates Automáticos (code_execution)
 
@@ -399,6 +412,15 @@ print(check(
     "{session_dir}/04-synthesis.md",
     "{session_dir}/05-report.md"
 ))
+''')
+```
+
+**GATE-0b (Title Match Checkpoint Verification):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_title_match import check
+print(check("{session_dir}"))
 ''')
 ```
 

@@ -25,12 +25,19 @@ from pathlib import Path
 
 
 def _extract_source_ids_from_inventory(inventory_path: str) -> set[str]:
-    """Extrai todos os source_ids do 02-source-inventory.md."""
+    """Extrai todos os source_ids do 02-source-inventory.md.
+
+    Detecta schema via <!-- schema: v2 --> para logging.
+    A extração de IDs é agnóstica a formato (regex-based).
+    """
     ids = set()
     try:
         text = Path(inventory_path).read_text(encoding="utf-8")
     except (OSError, FileNotFoundError):
         return ids
+
+    # Schema detection (para logging; regex de ID é format-agnostic)
+    _schema_v2 = "<!-- schema: v2" in text
 
     for match in re.finditer(r'\|\s*(S\d+|CODE-\d+)\s*\|', text):
         ids.add(match.group(1).strip())

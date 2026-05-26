@@ -24,6 +24,7 @@ def _extract_sources(inventory_path: str) -> list[dict]:
     """Extrai fontes do 02-source-inventory.md.
 
     Suporta formatos antigo (5 colunas) e novo (6 colunas com DOI).
+    Detecta schema via <!-- schema: v2 --> comment header.
     Formato novo: | S{n} | Location | Type | DOI | Relevance | Why |
     Formato antigo: | S{n} | Location | Type | Relevance | Why |
     Retorna lista de {"id": "S1", "title": "...", "has_url": bool}
@@ -33,6 +34,9 @@ def _extract_sources(inventory_path: str) -> list[dict]:
         text = Path(inventory_path).read_text(encoding="utf-8")
     except (OSError, FileNotFoundError):
         return sources
+
+    # Detectar schema header para logging (formato semanticamente relevante)
+    schema_v2 = "<!-- schema: v2" in text
 
     for line in text.splitlines():
         stripped = line.strip()
@@ -44,10 +48,15 @@ def _extract_sources(inventory_path: str) -> list[dict]:
         if len(parts) < 5:
             continue
         sid = parts[1]
-        # parts[2] é sempre Location/Title
+        # parts[2] é sempre Location/Title em ambos os formatos
         title_or_path = parts[2] if len(parts) > 2 else ""
         has_url = bool(re.search(r'https?://', title_or_path))
-        sources.append({"id": sid, "title": title_or_path, "has_url": has_url})
+        sources.append({
+            "id": sid,
+            "title": title_or_path,
+            "has_url": has_url,
+            "schema_v2": schema_v2,
+        })
     return sources
 
 

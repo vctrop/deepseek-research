@@ -27,6 +27,7 @@ from pathlib import Path
 from prompts import (
     _build_bibliography_prompt,
     _build_code_prompt,
+    _build_verify_titles_prompt,
 )
 
 # Re-export resolve_fulltext para code_execution
@@ -203,7 +204,7 @@ def check_coverage_grade_consistency(deep_reads_dir: str, synthesis_path: str) -
 
     result = {
         "pass": len(violations) == 0,
-        "gate": "GATE-5x",
+        "gate": "GATE-9",
         "description": "Coverage-Grade Consistency Check",
         "violations": violations,
     }
@@ -332,6 +333,7 @@ def build_subagent_prompt(
     prompts = {
         "dsr-bibliography": _build_bibliography_prompt,
         "dsr-code": _build_code_prompt,
+        "dsr-verify-titles": _build_verify_titles_prompt,
     }
     builder = prompts.get(template_name)
     if builder is None:

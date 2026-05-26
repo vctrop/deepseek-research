@@ -32,6 +32,7 @@ Identified: {TOTAL} → After dedup: {DEDUPED} → Selected for verification: {V
 
 ## Consolidated Sources
 
+<!-- schema: v2 cols=6 -->
 | Source ID | Location | Type | DOI | Relevance | Why |
 |-----------|----------|------|-----|-----------|-----|
 | S1 | {path or URL} | paper/code/doc | {doi or "N/A"} | 1-5 | {one sentence} |
@@ -62,3 +63,5 @@ Identified: {TOTAL} → After dedup: {DEDUPED} → Selected for verification: {V
 **Codebase axis:** {diagnostic}
 
 **Recommendation:** {widen scope, refine RQ, or accept negative result}
+
+<!-- STAGE_COMPLETE -->
