@@ -39,7 +39,7 @@ Placeholders `{output_dir}`, `{date}-{slug}`, `{RQ}`, `{SKILL_DIR}`,
 `{bibliography_path}`, `{session_dir}`, `{oss_clone_dir}`, `{iso8601_utc}`,
 `{skill_git_hash}`, `{model_id}`, `{date}`, `{slug}` são interpolados pelo
 orquestrador. `{SKILL_DIR}` → diretório de instalação da skill.
-Configurações de PDF acquisition (`unpaywall_email`, `allow_scihub`,
+Configurações de PDF acquisition (`unpaywall_email`, `shadow_libraries`,
 `scihub_domain`) são lidas diretamente do `.toml` via `config_read()`
 no Stage 3.1 — não são placeholders.
 
@@ -223,9 +223,11 @@ with open("{session_dir}/pdfs/mapping.json", "w") as f:
 ''')
 ```
 
-Cadeia por fonte: arXiv PDF → Unpaywall API (requer `unpaywall_email` config) →
-Sci-Hub (requer `allow_scihub=true`). O Stage 4 lê `pdfs/mapping.json` para saber
-quais PDFs estão disponíveis. Ver `references/pipeline-detail.md` §3.1.
+Cadeia por fonte (6 métodos): arXiv PDF → Unpaywall API (requer `unpaywall_email`
+config) → Sci-Hub → Library Genesis → Anna's Archive → Abstract via DOI
+(shadow libraries requerem `shadow_libraries` config). O Stage 4 lê
+`pdfs/mapping.json` para saber quais PDFs estão disponíveis.
+Ver `references/pipeline-detail.md` §3.1.
 
 ### 3.2 Credibility + Risk of Bias
 
