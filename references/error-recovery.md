@@ -12,6 +12,9 @@ Carregado no início do pipeline. Referenciado inline quando ocorre erro.
 | Source URL 404/403 | Flag "UNVERIFIABLE"; credibility → Low para 404/403, mantém para timeout |
 | 0 fontes em todos os eixos | Skip Stages 3-4; Stage 5 → relatório negativo |
 | RLM session hang | `rlm_close` e reabrir com timeout menor |
+| Paywall irresolvível (3+ tentativas) | Marcar INACCESSIBLE; escrever deep-read blocker; prosseguir |
+| 5+ INACCESSIBLE consecutivos | Interromper Stage 4; circuito aberto; prosseguir para Stage 5 |
+| RLM sub_query_batch timeout | `rlm_close` imediatamente; marcar fonte FAILED; próximo batch |
 | Context budget atingido | `/compact` + "continue deep research {slug}" |
 | `bibliography_path` não encontrado | Remover "bibliography" dos axes; continuar com codebase |
 | Offline (sem internet) | Remover busca web; anotar "offline" no report |

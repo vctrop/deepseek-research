@@ -144,7 +144,17 @@ arquivos com matches.
    ```
    Identified: {TOTAL} → After dedup: {DEDUPED} → Selected for verification: {P}
    ```
-5. Preencher template `source-inventory.md` e escrever.
+5. Preencher template `source-inventory.md` como draft (`02-source-inventory-draft.md`).
+
+6. **Enforce source caps (antes de escrever o inventory final):**
+   ```
+   code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from enforce_source_caps import enforce_caps; import json; result = enforce_caps('{session_dir}/02-source-inventory-draft.md', max_per_axis={max_sources_per_axis}); print(json.dumps(result, indent=2))")
+   ```
+   Se fontes foram removidas:
+   - Truncar a tabela ativa no inventory final às fontes kept.
+   - Registrar fontes removidas em seção `## Cap Enforcement`.
+   - Remover o draft: `exec_shell("rm {session_dir}/02-source-inventory-draft.md")`.
+   Se nenhuma fonte removida: renomear draft → final.
 
 **Tabela de fontes:** ID | Título | Tipo (paper/código/doc) | DOI | Relevância (1-5) | Why
 
@@ -347,11 +357,71 @@ delay 1.5-4.0s entre requests, timeout 30s.
 **Quem:** Orquestrador (Pro)
 **Output:** `deep-reads/{source_id}.md`
 
+### 4.0 Paywall Circuit Breaker
+
+Antes de tentar deep-read de qualquer fonte paper:
+
+1. **PRIMEIRO:** consultar `pdfs/mapping.json` (gerado pelo Stage 3.1).
+   - Se `status == "success"` e `pdf_path` existe → usar PDF para deep read.
+   - Se `status == "unavailable"` ou `"paywall"` → fonte já foi considerada
+     inacessível no Stage 3.1. NÃO re-tentar acesso. Marcar INACCESSIBLE.
+   - Se `status == "abstract_only"` → deep read do abstract apenas; todos os
+     claims serão I-grade (não V-grade). Marcar PARTIAL no header.
+
+2. Se `pdfs/mapping.json` não existe ou não tem entrada para a fonte
+   (fallback para inventários antigos):
+   a. Verificar `03-source-verification.md` → status da fonte.
+   b. Se UNVERIFIABLE por paywall → marcar INACCESSIBLE, pular.
+   c. Se ACCESSIBLE mas requer autenticação (Nature, Elsevier, Springer):
+      - Tentar até 3 rotas de acesso (fetch_url, Unpaywall, shadow library).
+      - Se 3 falharem → marcar INACCESSIBLE, escrever deep-read com header
+        "BLOCKED — Paywall" e prosseguir.
+      - NUNCA delegar ao orquestrador "obter PDF via subscrição institucional".
+
+3. **Circuit breaker global:** se ≥5 fontes consecutivas resultarem INACCESSIBLE,
+   interromper Stage 4 — as fontes restantes provavelmente também são inacessíveis.
+   Prosseguir para Stage 5 com as fontes processadas até agora.
+
+4. Fontes INACCESSIBLE NÃO contam contra `max_deep_reads`. O cap se aplica a
+   fontes efetivamente processadas (COMPREHENSIVE / PARTIAL / MINIMAL).
+   INACCESSIBLE e FAILED são registradas mas não consomem vaga.
+   Ex: max_deep_reads=10, 3 INACCESSIBLE, 10 processadas → total de 13 fontes
+   visitadas, 10 efetivas.
+
 ### 4.1 Priorização
 
 Ordenar fontes verificadas por relevância (desc). Selecionar top `max_deep_reads`.
 
-### 4.2 Processamento sequencial
+### 4.2 Processamento de fontes (modo preferencial: sub-agent wrapper)
+
+**⚠ Arquitetura de isolamento de timeout:** O orquestrador é síncrono —
+se uma tool call (`rlm_eval`, `agent_eval`) congela, o orquestrador inteiro
+congela irreversivelmente. Para evitar isso, T3/T4 devem ser processadas via
+sub-agents com timeout, isolando o RLM do loop principal.
+
+**Modo preferencial — Sub-agent wrapper para T3/T4:**
+
+```
+Para cada fonte T3/T4:
+  1. Orquestrador faz rlm_open no documento → obtém file_path/content
+  2. Dispara sub-agent com timeout:
+     agent_open(name="deep-read-{source_id}", model="deepseek-v4-pro",
+       allowed_tools=["rlm_open","rlm_eval","rlm_configure","rlm_close",
+                      "read_file","write_file","handle_read"],
+       prompt="<instruções completas de deep read>")
+     agent_eval(agent_id="...", block=true, timeout_ms=600000)
+  3. Sub-agent executa: rlm_configure → chunk → sub_query_batch → write deep read
+  4. Sub-agent que expira (timeout_ms=600000) → agent_close → fonte FAILED
+  5. Orquestrador retoma controle após timeout e processa próxima fonte
+  6. Fontes podem ser processadas em paralelo (até max_deep_reads sub-agents simultâneos)
+```
+
+**Benefícios:**
+- Timeout de 10min por fonte — se travar, não bloqueia o orquestrador
+- Fontes são processadas em isolamento — crash de uma não afeta outras
+- `agent_close` + `rlm_close` são garantidos mesmo em timeout
+
+**Fallback (modo direto, se rlm_eval indisponível para sub-agents):**
 
 Para cada fonte (da maior relevância para menor):
 
@@ -364,13 +434,27 @@ Para cada fonte (da maior relevância para menor):
 | T3 | 50-200KB | `rlm_open` → chunk(8K, overlap=1K) → batch → `rlm_close` |
 | T4 | > 200KB | Leitura seletiva: ToC → intro/conclusion → seções relevantes |
 
-**RLM contract para T3/T4:**
-```
-rlm_open(name="dr-{source_id}", file_path="{source_path}")
-rlm_configure(name="dr-{source_id}", output_feedback="metadata")
-rlm_eval(name="dr-{source_id}", code="chunks = chunk(chunk_size=8000, overlap=1000); finalize({'n_chunks': len(chunks), 'chunks': chunks})")
+No modo direto, o timeout depende exclusivamente de F-1 (`sub_query_timeout_secs=120`)
+e o orquestrador está vulnerável a hangs do `rlm_eval` pai. Use o modo preferencial
+sempre que possível.
 
-# Processar claims:
+**RLM contract para T3/T4 (com cleanup em todos os paths):**
+```
+# 1. Abrir sessão RLM
+rlm_open(name="dr-{source_id}", file_path="{source_path}")
+# Se rlm_open retornar erro → fonte INACCESSIBLE, próximo.
+
+# 2. Configurar timeout
+rlm_configure(name="dr-{source_id}", output_feedback="metadata", sub_query_timeout_secs=120)
+
+# 3. Chunking
+rlm_eval(name="dr-{source_id}", code="chunks = chunk(chunk_size=8000, overlap=1000); finalize({'n_chunks': len(chunks), 'chunks': chunks})")
+# Detecção de falha:
+# - Se rlm_eval retornar erro → rlm_close IMEDIATAMENTE, fonte FAILED
+# - Se handle_read retornar None → rlm_close IMEDIATAMENTE, fonte FAILED
+# - Se n_chunks == 0 → rlm_close, fonte FAILED (documento vazio/ilegível)
+
+# 4. Processar claims via sub_query_batch
 rlm_eval(name="dr-{source_id}", code="""
 results = sub_query_batch(
     queries=[f"Extract all claims relevant to RQ '{rq_text}' from this text. For each claim, provide: (a) verbatim quote, (b) evidence grade (V/P/I/M), (c) section reference. Text: {chunk}" for chunk in chunks],
@@ -379,9 +463,22 @@ results = sub_query_batch(
 )
 finalize(results)
 """)
+# Detecção de falha:
+# - rlm_eval retorna erro → rlm_close IMEDIATAMENTE, fonte FAILED
+# - handle_read retorna None → rlm_close IMEDIATAMENTE (timeout ou crash do RLM)
+# - results é lista vazia → warning (documento sem claims relevantes; não é falha)
 
+# 5. EM QUALQUER PATH (sucesso, falha, timeout): FECHAR A SESSÃO
 rlm_close(name="dr-{source_id}")
 ```
+
+**⚠ Detecção de falha do RLM:**
+- `rlm_eval` retorna status de erro → `rlm_close` IMEDIATAMENTE.
+- `handle_read` do resultado retorna `None` → `rlm_close` IMEDIATAMENTE
+  (indica que o RLM não produziu output — timeout ou crash interno).
+- Nunca tente reabrir a mesma sessão. Crie uma nova (`dr-{source_id}-retry`)
+  se necessário.
+- Máximo 1 sessão RLM ativa por vez. Sempre fechar no cleanup em caso de erro.
 
 **Código (T5):**
 1. Clone: `exec_shell("git clone --depth 1 --single-branch {repo_url} {oss_clone_dir}/{org}_{repo}/")`. Se já existe: `git pull --ff-only`. Timeout 120s.
@@ -397,7 +494,25 @@ Após cada 3 deep reads concluídas:
 ```
 code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from helpers import compute_saturation; print(compute_saturation('{session_dir}/deep-reads/', '{RQ_TEXT}', last_n=2))")
 ```
-Se retornar `True` (últimas 2 fontes sem claims V/E novos) → interromper.
+
+**Checkpoint de saturação em disco (sempre escrever, independente do resultado):**
+```
+write_file("{session_dir}/deep-reads/_saturation_check.md", content=f"""# Saturation Check
+
+**Timestamp:** {iso8601_utc}
+**Deep reads completed:** {n_completed}
+**Saturation reached:** {result}
+**Action:** {"STOP — proceed to Stage 5" if result else "CONTINUE — process next batch"}
+""")
+```
+
+Se saturação atingida → interromper Stage 4 e prosseguir para Stage 5.
+Se não → continuar para próximo batch de 3 fontes.
+
+**Checkpoint final:** Ao término do Stage 4 (seja por saturação, `max_deep_reads`
+atingido, ou circuit breaker global), escrever checkpoint final com todas as
+fontes processadas. Isso garante que `stage_status.py` detecta conclusão mesmo
+se o último batch teve <3 fontes.
 
 ### 4.4 Output
 

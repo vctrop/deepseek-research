@@ -94,7 +94,7 @@ code_execution(code="import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); from
 
 ```
 rlm_open(name="dr-{source_id}", file_path="{source_path}")
-rlm_configure(name="dr-{source_id}", output_feedback="metadata")
+rlm_configure(name="dr-{source_id}", output_feedback="metadata", sub_query_timeout_secs=120)
 rlm_eval(name="dr-{source_id}", code="chunks = chunk(chunk_size=8000, overlap=1000); finalize({'n_chunks': len(chunks), 'chunks': chunks})")
 rlm_eval(name="dr-{source_id}", code="""
 results = sub_query_batch(
@@ -110,6 +110,11 @@ rlm_close(name="dr-{source_id}")
 - Máximo 1 RLM session ativa por vez.
 - Sempre fechar no cleanup em caso de erro.
 - T1/T2: `read_file` direto, sem RLM.
+
+**Timeout:** `sub_query_timeout_secs=120` garante que, se qualquer query filha
+do `sub_query_batch` não responder em 2 minutos, o batch falha com erro.
+O orquestrador deve capturar o erro via `try/except` implícito (se `rlm_eval`
+retornar erro ou output vazio, marcar fonte como FAILED e prosseguir).
 
 ## Internal Consistency Checks
 
