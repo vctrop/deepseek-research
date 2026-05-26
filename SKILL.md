@@ -30,7 +30,7 @@ Ferramentas de sub-agents: ver `{SKILL_DIR}/references/subagent-prompts.md`.
 
 Demais variáveis (`bibliography_path`, `oss_clone_dir`, `unpaywall_email`,
 `shadow_libraries`, `scihub_domain`) e placeholders: ver
-`{SKILL_DIR}/references/pipeline-detail.md` §Config.
+`{SKILL_DIR}/references/pipeline-detail.md` §Phase 0 e §Stage 3.1.
 
 ## Quick Reference
 
@@ -58,7 +58,6 @@ Close:    Persistence + Gates  → MANIFEST.txt, SESSION-INDEX.md
 
 **Resume from interruption:** `stage_status.py` detecta o próximo stage.
 Se `03-source-verification.md` existe, retome do Stage 4 (fallback manual).
-Ver `{SKILL_DIR}/references/pipeline-detail.md` §Resume.
 
 ---
 
