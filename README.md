@@ -197,7 +197,8 @@ estrutural, não verdade. Todo relatório inclui uma Methodological Note.
 
 ## Development
 
-Ver `AGENTS.md` para o guia de desenvolvimento.
+Ver `AGENTS.md` para o guia de desenvolvimento. Documentos de planejamento
+(SPECs, design docs, ADRs) devem ser colocados em `dev-docs/`.
 
 ```bash
 python3 scripts/smoke_test.py

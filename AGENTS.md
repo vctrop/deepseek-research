@@ -35,6 +35,14 @@ SKILL.md (~220L)          → Orchestrator entry point. 5-stage pipeline.
 4. **Stage additions:** new stages must be added to both SKILL.md and `pipeline-detail.md`.
 5. **Gate additions:** new gates must be documented in the Close table (SKILL.md) and have executable commands in `pipeline-detail.md` §Close.
 
+## Project Directory Conventions
+
+- **`dev-docs/`** — Planning documents, SPECs, design docs, ADRs, and any development planning artifacts. All LLM-generated or human-written planning work for this skill's development lives here.
+- **`references/`** — Pipeline reference: stage detail, sub-agent prompts, deep-reading guide, error recovery, risk of bias.
+- **`templates/`** — Output templates for each pipeline stage.
+- **`scripts/`** — Python helpers and verification scripts.
+- **`research-reports/`** — User-facing research output; never commit development planning here.
+
 ## Common Pitfalls
 
 - **`main_topic` bloat:** Extract short topic names (1-5 words) and pass as `topics=` to `build_subagent_prompt`. Never pass full RQ as `main_topic`.
