@@ -245,17 +245,29 @@ quais PDFs estão disponíveis. Ver `references/pipeline-detail.md` §3.1.
 **Output:** `deep-reads/{source_id}.md`
 **Template:** `{SKILL_DIR}/templates/source-deep-read.md`
 
-1. Priorizar top `max_deep_reads` fontes por relevância.
-2. **Saturação:** após cada 3 deep reads, verificar se últimas 2 adicionaram
-   claims novos (V ou E). Se não → interromper.
-3. **Papers:** T1 (<5KB) `read_file`, T2 (5-50KB) paginado, T3 (50-200KB) RLM
+1. **RLM Sweep:** antes de abrir qualquer sessão RLM, fechar sessões órfãs
+   (`rlm_close` idempotente por fonte). Ver pipeline-detail §4.1.
+2. **Paywall breaker:** consultar `pdfs/mapping.json`; fontes `unavailable` →
+   INACCESSIBLE sem re-tentativa. Max 3 rotas por fonte. Circuit breaker global
+   após 5 INACCESSIBLE consecutivas. Ver pipeline-detail §4.0.
+3. Priorizar top `max_deep_reads` fontes ACCESSIBLE por relevância.
+   INACCESSIBLE não consomem vaga.
+4. **T3/T4 (preferencial):** sub-agent wrapper com `timeout_ms=600000`.
+   Isola RLM do orquestrador. Fallback: modo direto com `sub_query_timeout_secs=120`
+   no RLM contract. Ver pipeline-detail §4.4.
+5. **Saturação:** após cada 3 deep reads, verificar se últimas 2 adicionaram
+   claims novos (V ou E). Escrever `_saturation_check.md` em disco. Se não →
+   interromper. Ver pipeline-detail §4.5.
+6. **Papers:** T1 (<5KB) `read_file`, T2 (5-50KB) paginado, T3 (50-200KB) RLM
    chunk+batch, T4 (>200KB) ToC→intro/conclusion→seções relevantes.
-4. **RLM lifecycle:** `rlm_open` → `rlm_eval` → `rlm_close`. Máximo 1 ativa.
-5. **Código (T5):** clone `--depth 1 --single-branch` (120s timeout), grep,
+7. **RLM lifecycle:** `rlm_open` → `rlm_configure` (com `sub_query_timeout_secs=120`)
+   → `rlm_eval` → `rlm_close`. Cleanup garantido em todos os paths de erro.
+   Máximo 1 ativa. Ver deep-reading.md §RLM Lifecycle Contract.
+8. **Código (T5):** clone `--depth 1 --single-branch` (120s timeout), grep,
    read_file, extrair claims E-grade, registrar commit hash.
-6. **Context budget:** batch de 3 fontes T3/T4, compactar se >70%.
-7. Output: tabela de claims (V/P/I/M/E) + internal consistency + assessment.
-8. Ver `{SKILL_DIR}/references/deep-reading.md`.
+9. **Context budget:** batch de 3 fontes T3/T4, compactar se >70%.
+10. Output: tabela de claims (V/P/I/M/E) + internal consistency + assessment.
+11. Ver `{SKILL_DIR}/references/deep-reading.md` e `{SKILL_DIR}/references/pipeline-detail.md` §Stage 4.
 
 ---
 

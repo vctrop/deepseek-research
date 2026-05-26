@@ -19,22 +19,78 @@ import re
 from pathlib import Path
 
 
+def _classify_deep_read(fpath: Path) -> str:
+    """Classify a deep read file as completed/failed/inaccessible/orphan/unclassified.
+
+    Classification rules (SPEC-005 F-7):
+    - 0 bytes → orphan
+    - Header contains "**Status:** FAILED" → failed
+    - Header contains "INACCESSIBLE" or "BLOCKED" → inaccessible
+    - Header contains "**Overall Assessment:** COMPREHENSIVE/PARTIAL/MINIMAL" → completed
+    - Claims table populated (≥1 claim) without status header → completed
+    - None of the above → unclassified
+    """
+    try:
+        st_size = fpath.stat().st_size
+    except OSError:
+        return "unclassified"
+
+    if st_size == 0:
+        return "orphan"
+
+    try:
+        text = fpath.read_text(encoding="utf-8")
+    except OSError:
+        return "unclassified"
+
+    # Check for explicit status markers
+    if re.search(r'\*\*Status:\*\*\s*FAILED', text):
+        return "failed"
+    if re.search(r'\bINACCESSIBLE\b', text) or re.search(r'\bBLOCKED\b', text):
+        return "inaccessible"
+
+    # Check for Overall Assessment
+    if re.search(r'\*\*Overall Assessment:\*\*\s*(COMPREHENSIVE|PARTIAL|MINIMAL)', text):
+        return "completed"
+
+    # Check for populated claims table (≥1 claim row: | C1 | ... | V/P/I/M/E |)
+    if re.search(r'\|\s*C\d+\s*\|', text):
+        return "completed"
+
+    return "unclassified"
+
+
 def _count_deep_reads(deep_reads_dir: Path) -> dict:
-    """Count deep reads and aggregate coverage stats."""
-    result = {"completed": 0, "total_files": 0, "coverage_min": None,
-              "coverage_max": None, "coverage_mean": None}
+    """Count deep reads with classification and aggregate coverage stats (F-7)."""
+    result = {
+        "completed": 0,
+        "failed": 0,
+        "inaccessible": 0,
+        "orphan": 0,
+        "unclassified": 0,
+        "total_files": 0,
+        "coverage_min": None,
+        "coverage_max": None,
+        "coverage_mean": None,
+    }
     coverages = []
     if deep_reads_dir.exists():
         for fpath in sorted(deep_reads_dir.glob("*.md")):
             if fpath.name.startswith("_"):
                 continue
             result["total_files"] += 1
+
+            classification = _classify_deep_read(fpath)
+            if classification in result:
+                result[classification] += 1
+            else:
+                result["unclassified"] += 1
+
+            # Extract coverage for completed/inaccessible/failed files
             try:
                 text = fpath.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if "<!-- STAGE_COMPLETE -->" in text:
-                result["completed"] += 1
             cov_match = re.search(r'\*\*Coverage:\*\*\s*([\d.]+)%', text)
             if cov_match:
                 try:
@@ -159,7 +215,18 @@ def compute(session_dir: str) -> str:
         except OSError:
             pass
 
-    lines.append(f"- **Deep reads:** {dr['completed']}/{dr['total_files']} completed")
+    # Deep read classification (F-7)
+    dr_status_parts = [f"{dr['completed']} completed"]
+    if dr['failed'] > 0:
+        dr_status_parts.append(f"{dr['failed']} failed")
+    if dr['inaccessible'] > 0:
+        dr_status_parts.append(f"{dr['inaccessible']} inaccessible")
+    if dr['orphan'] > 0:
+        dr_status_parts.append(f"{dr['orphan']} orphan")
+    if dr['unclassified'] > 0:
+        dr_status_parts.append(f"{dr['unclassified']} unclassified")
+    lines.append(f"- **Deep reads:** {', '.join(dr_status_parts)} "
+                 f"({dr['total_files']} total)")
     if dr["coverage_mean"] is not None:
         lines.append(f"- **Coverage:** min {dr['coverage_min']}%, "
                      f"max {dr['coverage_max']}%, "

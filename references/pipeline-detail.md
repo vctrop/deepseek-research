@@ -388,11 +388,56 @@ Antes de tentar deep-read de qualquer fonte paper:
    Ex: max_deep_reads=10, 3 INACCESSIBLE, 10 processadas → total de 13 fontes
    visitadas, 10 efetivas.
 
-### 4.1 Priorização
+### 4.1 RLM Sweep (Resume Safety)
+
+Antes de abrir qualquer sessão RLM, executar sweep para fechar sessões órfãs
+de execuções anteriores (crash, `/compact`, timeout externo):
+
+```
+# Para cada fonte no inventory que ainda não tem deep-read completo:
+#   1. Tentar rlm_close(name="dr-{source_id}") — idempotente se já fechada.
+#   2. Ignorar erro (sessão pode já ter sido fechada ou nunca ter existido).
+#   3. Registrar no log: "RLM sweep: dr-{source_id} closed (was orphaned)"
+#      ou "already closed".
+```
+
+Este sweep é seguro porque `rlm_close` em uma sessão já fechada é no-op ou
+erro inócuo. Resolve o cenário de sessões RLM órfãs que bloqueiam a abertura
+de novas sessões (máximo 1 sessão RLM ativa por vez).
+
+### 4.2 Priorização
 
 Ordenar fontes verificadas por relevância (desc). Selecionar top `max_deep_reads`.
 
-### 4.2 Processamento de fontes (modo preferencial: sub-agent wrapper)
+### 4.2.0 Per-source Budget Guidelines
+
+⚠ ESTA SEÇÃO É DOCUMENTAÇÃO, NÃO MECANISMO. O orquestrador (LLM) não tem
+cronômetro interno e não pode medir wall-clock time. Os limites abaixo são
+implementados indiretamente via timeouts de ferramentas (F-0, F-1) e devem
+ser usados como referência para dimensionamento de timeouts, não como
+gatilhos de interrupção.
+
+Cada fonte tem um budget máximo de tempo, implementado via:
+- T1/T2 (sem RLM): 3 minutos — via `read_file` sem timeout explícito
+  (documentos pequenos não justificam wrapper)
+- T3/T4 (com RLM): 10 minutos — via F-0 (`agent_eval` timeout_ms=600000)
+  + F-1 (`sub_query_timeout_secs=120`)
+- T5 (código, clone): 5 minutos — via `exec_shell` timeout 120s +
+  `grep_files` + `read_file`
+
+Regras comportamentais (enforced via design, não cronômetro):
+1. NUNCA tentar reprocessar a mesma fonte na mesma sessão (sem retry loop).
+2. Se F-0 retornar timeout → marcar FAILED, prosseguir.
+3. Se F-1 retornar timeout → marcar FAILED, prosseguir.
+4. Salvar output parcial antes de marcar FAILED (o que foi extraído até o timeout).
+
+Os timeouts efetivos são:
+- F-0: `agent_eval` com `timeout_ms=600000` (10 min) → teto por fonte T3/T4
+- F-1: `sub_query_timeout_secs=120` (2 min) → teto por batch de queries
+- `fetch_url` timeout 30s → 3 tentativas = 90s max (F-2)
+- `exec_shell` clone timeout 120s
+
+### 4.4 Processamento de fontes (modo preferencial: sub-agent wrapper)
 
 **⚠ Arquitetura de isolamento de timeout:** O orquestrador é síncrono —
 se uma tool call (`rlm_eval`, `agent_eval`) congela, o orquestrador inteiro
@@ -488,7 +533,7 @@ rlm_close(name="dr-{source_id}")
 5. Executar `exec_shell("cd {oss_clone_dir}/{org}_{repo} && git rev-parse HEAD")` → commit hash.
 6. Adicionar `oss/` ao `.gitignore` se ausente.
 
-### 4.3 Saturação
+### 4.5 Saturação
 
 Após cada 3 deep reads concluídas:
 ```
@@ -514,7 +559,7 @@ atingido, ou circuit breaker global), escrever checkpoint final com todas as
 fontes processadas. Isso garante que `stage_status.py` detecta conclusão mesmo
 se o último batch teve <3 fontes.
 
-### 4.4 Output
+### 4.6 Output
 
 Cada fonte gera `deep-reads/{source_id}.md` com:
 - Metadata (source_id, tier, chunking, commit hash se T5).
@@ -524,7 +569,7 @@ Cada fonte gera `deep-reads/{source_id}.md` com:
 - Sections Skipped (T4 only).
 - Overall Assessment: COMPREHENSIVE / PARTIAL / MINIMAL.
 
-### 4.5 Context budget
+### 4.7 Context budget
 
 - Processar T3/T4 em batches de 3 fontes.
 - Após cada batch, se > 70% do budget → `/compact` e continuar.

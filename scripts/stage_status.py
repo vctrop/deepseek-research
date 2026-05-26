@@ -29,6 +29,30 @@ STAGE_FILES = [
 ]
 
 MARKER = "<!-- STAGE_COMPLETE -->"
+SATURATION_CHECK = "_saturation_check.md"
+SATURATION_STOP_MARKER = "STOP — proceed to Stage 5"
+
+
+def _check_stage4_via_saturation(session: Path) -> str | None:
+    """Check if Stage 4 is complete via _saturation_check.md.
+
+    Returns:
+        "complete" if saturation file exists and says STOP.
+        "in_progress" if saturation file exists and says CONTINUE.
+        None if no saturation file exists (fall back to 04-synthesis.md marker).
+    """
+    sat_path = session / "deep-reads" / SATURATION_CHECK
+    if not sat_path.exists():
+        return None
+    try:
+        text = sat_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if SATURATION_STOP_MARKER in text:
+        return "complete"
+    if "CONTINUE" in text:
+        return "in_progress"
+    return None
 
 
 def check(session_dir: str) -> str:
@@ -47,12 +71,23 @@ def check(session_dir: str) -> str:
     missing: list[str] = []
 
     for filename, stage_name in STAGE_FILES:
+        # Stage 4: prefer _saturation_check.md over 04-synthesis.md marker
+        if filename == "04-synthesis.md":
+            sat_status = _check_stage4_via_saturation(session)
+            if sat_status == "complete":
+                complete.append(stage_name)
+                continue
+            elif sat_status == "in_progress":
+                incomplete.append(stage_name)
+                continue
+            # Fall through to normal marker check
+
         fpath = session / filename
         if not fpath.exists():
             missing.append(stage_name)
             continue
         try:
-            # Check last 50 bytes for the marker
+            # Check last 100 bytes for the marker
             with open(fpath, "rb") as f:
                 f.seek(max(0, fpath.stat().st_size - 100))
                 tail = f.read(100).decode("utf-8", errors="replace")
@@ -90,6 +125,20 @@ def check(session_dir: str) -> str:
             f"{', '.join(incomplete)}. These may be truncated — "
             f"recommend re-running from {incomplete[0] if incomplete else next_stage}."
         )
+
+    # Add saturation check info if applicable
+    sat_path = session / "deep-reads" / SATURATION_CHECK
+    if sat_path.exists():
+        try:
+            sat_text = sat_path.read_text(encoding="utf-8")
+            if "STOP" in sat_text:
+                result["saturation_note"] = (
+                    "Stage 4 saturation checkpoint found with STOP marker. "
+                    "Stage 4 is considered complete even if 04-synthesis.md "
+                    "does not have a STAGE_COMPLETE marker."
+                )
+        except OSError:
+            pass
 
     return json.dumps(result, indent=2)
 
