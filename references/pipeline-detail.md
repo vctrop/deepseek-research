@@ -664,11 +664,17 @@ print(compute("{session_dir}"))
 
 **GATE-1 (File integrity):** `list_dir("{session_dir}")` → verificar 8 arquivos.
 
-**GATE-2 (IRON RULE C):**
+**GATE-2 (IRON RULE C — determinístico):**
 ```
-grep_files(pattern="\\b(validated|proved|confirmed|demonstrated|ensures|guarantees|always|never|optimal|definitive|conclusive|certainly|undoubtedly|obviously|clearly)\\b", path="{session_dir}/")
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from helpers import check_iron_rule_c_deterministic
+print(check_iron_rule_c_deterministic(
+    "{session_dir}/05-report.md",
+    "{session_dir}/04-synthesis.md"
+))
+''')
 ```
-Para cada match, verificar qualificação. Reportar violações.
 
 **GATE-3 (Textual evidence):** Verificar se claims STRONG em `04-synthesis.md` e
 `05-report.md` têm citação V-grade ou E-grade.
@@ -681,6 +687,37 @@ acessível tem RoB rating.
 grep_files(pattern="\\{[A-Za-z_]+\\}", path="{session_dir}/")
 ```
 Zero matches esperados.
+
+**GATE-6 (Verification Completeness):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_completeness import check
+print(check("{session_dir}/02-source-inventory.md", "{session_dir}/03-source-verification.md"))
+''')
+```
+
+**GATE-7 (Evidence Grade Sanity):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_evidence_grades import check
+print(check("{session_dir}/deep-reads/"))
+''')
+```
+
+**GATE-8 (Source Ref Cross-Check):**
+```
+code_execution(code='''
+import sys; sys.path.insert(0, "{SKILL_DIR}/scripts")
+from verify_source_refs import check
+print(check(
+    "{session_dir}/02-source-inventory.md",
+    "{session_dir}/04-synthesis.md",
+    "{session_dir}/05-report.md"
+))
+''')
+```
 
 **GATE-0b (Title Match Checkpoint):**
 ```
