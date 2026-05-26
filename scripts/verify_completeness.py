@@ -23,7 +23,9 @@ from pathlib import Path
 def _extract_sources(inventory_path: str) -> list[dict]:
     """Extrai fontes do 02-source-inventory.md.
 
-    Procura linhas de tabela: | S{n} | title | type | relevance | why |
+    Suporta formatos antigo (5 colunas) e novo (6 colunas com DOI).
+    Formato novo: | S{n} | Location | Type | DOI | Relevance | Why |
+    Formato antigo: | S{n} | Location | Type | Relevance | Why |
     Retorna lista de {"id": "S1", "title": "...", "has_url": bool}
     """
     sources = []
@@ -32,14 +34,18 @@ def _extract_sources(inventory_path: str) -> list[dict]:
     except (OSError, FileNotFoundError):
         return sources
 
-    # Padrão para linhas de fonte na tabela de inventory
-    for match in re.finditer(
-        r'\|\s*(S\d+|CODE-\d+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*\d\s*\|',
-        text
-    ):
-        sid = match.group(1).strip()
-        title_or_path = match.group(2).strip()
-        # Verificar se tem URL (contém http:// ou https://)
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not (stripped.startswith("| S") or stripped.startswith("| CODE-")):
+            continue
+        if stripped.startswith("| Source"):
+            continue
+        parts = [p.strip() for p in stripped.split("|")]
+        if len(parts) < 5:
+            continue
+        sid = parts[1]
+        # parts[2] é sempre Location/Title
+        title_or_path = parts[2] if len(parts) > 2 else ""
         has_url = bool(re.search(r'https?://', title_or_path))
         sources.append({"id": sid, "title": title_or_path, "has_url": has_url})
     return sources

@@ -32,10 +32,10 @@ Identified: {TOTAL} → After dedup: {DEDUPED} → Selected for verification: {V
 
 ## Consolidated Sources
 
-| Source ID | Location | Type | Relevance | Why relevant |
-|-----------|----------|------|-----------|--------------|
-| S1 | {path or URL} | paper/code/doc | 1-5 | {one sentence} |
-| S2 | ... | ... | ... | ... |
+| Source ID | Location | Type | DOI | Relevance | Why |
+|-----------|----------|------|-----|-----------|-----|
+| S1 | {path or URL} | paper/code/doc | {doi or "N/A"} | 1-5 | {one sentence} |
+| S2 | ... | ... | ... | ... | ... |
 
 **Relevance scale:**
 - 5 — Directly answers sub-question
@@ -49,6 +49,7 @@ Identified: {TOTAL} → After dedup: {DEDUPED} → Selected for verification: {V
 ### S{n}: {title / file:line / URL}
 
 - **Type:** {paper / code / documentation}
+- **DOI:** {doi or "N/A" — mandatory for papers; use "N/A" if genuinely unavailable, never fabricate}
 - **Relevance:** {score}/5
 - **Why:** {rationale}
 - **Needs verification:** {yes/no}

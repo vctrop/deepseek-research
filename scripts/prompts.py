@@ -88,6 +88,20 @@ For each source you plan to include in your results, you MUST:
 3. If `fetch_url` fails (404, 403, timeout, or any non-200 status), do NOT include the source in your table. Report it in a separate "Attempted but inaccessible" section instead.
 4. Never fabricate, guess, or approximate URLs. Only include URLs you have successfully fetched and whose content you have read.
 
+## CRITICAL: DOI Capture (mandatory for papers)
+For every paper source you include, you MUST capture its DOI:
+1. **arXiv papers:** the DOI is often listed on the arXiv abstract page under "DOI:" or in the "Bibliographic data" sidebar. Fetch the abstract page (`https://arxiv.org/abs/{id}`) and extract the DOI.
+2. **Publisher pages:** check the page source for meta tags:
+   - `<meta name="citation_doi" content="10.XXXX/...">`
+   - `<meta name="dc.identifier.doi" content="10.XXXX/...">`
+   - `<meta name="dc.identifier" content="doi:10.XXXX/...">`
+3. **Visible text:** look for "DOI:" or "doi:" followed by a `10.XXXX/...` pattern anywhere on the page.
+4. **Always verify:** a valid DOI starts with `10.` followed by a slash, e.g., `10.1038/nature12373`.
+5. **If no DOI is found:** fill the DOI column with `N/A`. Never fabricate, guess, or approximate a DOI.
+6. **For code repositories and non-paper sources:** fill with `N/A`.
+
+The DOI column is MANDATORY in the output table — every row must have either a valid DOI or "N/A".
+
 ## CRITICAL: Anti-hallucination rule
 - arXiv IDs are 7-digit numbers (e.g., 2407.16833). If you are unsure of an ID, fetch the URL to verify it returns the expected paper. arXiv abstract pages are at `https://arxiv.org/abs/{id}`.
 - Never generate an arXiv ID from memory or by analogy — only use IDs you have seen in `web_search` results or successfully fetched URLs.
@@ -95,9 +109,10 @@ For each source you plan to include in your results, you MUST:
 - If you cannot verify a source, do not include it. Prefer fewer verified sources over more unverified ones.
 
 ## Output contract
-1. Markdown table: | Source ID | Title/Path | Type | Relevance (1-5) | Why relevant |
+1. Markdown table: | Source ID | Title/Path | Type | DOI | Relevance (1-5) | Why relevant |
    - The Title column MUST contain the EXACT title as it appears on the fetched page (copy-paste, do not paraphrase).
    - The Path column MUST contain the EXACT URL you successfully fetched (copy-paste from the `fetch_url` result).
+   - The DOI column MUST contain either a valid DOI (`10.XXXX/...`) or `N/A`. See "DOI Capture" section above for extraction instructions.
 2. Negative search results section with queries attempted and key findings.
 3. "Attempted but inaccessible" section for sources you tried to fetch but could not access (with the URL, HTTP status, and reason).
 

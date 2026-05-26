@@ -146,7 +146,13 @@ arquivos com matches.
    ```
 5. Preencher template `source-inventory.md` e escrever.
 
-**Tabela de fontes:** ID | Título | Tipo (paper/código/doc) | Relevância (1-5) | Why
+**Tabela de fontes:** ID | Título | Tipo (paper/código/doc) | DOI | Relevância (1-5) | Why
+
+**Captura de DOI (obrigatório para papers):** o sub-agent dsr-bibliography DEVE
+extrair o DOI de cada paper (meta tags, página arXiv, ou texto visível) e
+preenchê-lo na coluna dedicada. Usar `N/A` quando genuinamente indisponível.
+Nunca fabricar DOIs. Esta coluna é consumida pelo `resolve_all_fulltext()` no
+Stage 3.1 para habilitar shadow libraries e Unpaywall.
 
 ---
 
@@ -226,9 +232,13 @@ with open("{session_dir}/pdfs/mapping.json", "w") as f:
 ''')
 ```
 
-**Extração automática:** `resolve_all_fulltext()` usa regex para encontrar
-DOI (`10.XXXX/...`) e arXiv ID (`arXiv:YYMM.NNNNN`) no texto de cada linha
-do inventory. Fontes com type != "paper" são puladas.
+**Extração automática:** `resolve_all_fulltext()` primeiro lê a coluna DOI
+dedicada (formato novo: 6 colunas). Se a coluna contém um DOI válido ou `N/A`,
+usa diretamente; caso contrário, faz fallback para regex no texto da linha
+(busca por `10.XXXX/...` e `arXiv:YYMM.NNNNN`). Isso garante retrocompatibilidade
+com inventories antigos (5 colunas, sem coluna DOI). Fontes com type != "paper"
+são puladas. A captura de DOIs pelo sub-agent no Stage 2 é crítica: sem DOI,
+shadow libraries e Unpaywall não podem ser acionados para fontes paywalled.
 
 **Cadeia de fallback por fonte:**
 1. **arXiv PDF:** `GET https://arxiv.org/pdf/{id}.pdf` → salvar

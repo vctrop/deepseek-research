@@ -724,28 +724,72 @@ def resolve_all_fulltext(
         if lib in _SHADOW_LIBRARY_WHITELIST:
             summary[lib] = 0
 
-    # Extrair source_id + texto da linha da tabela
-    source_rows = re.findall(
-        r'\|\s*([A-Z]+\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+)\s*\|\s*\d\s*\|',
-        inventory_text
-    )
+    # Extrair linhas de tabela com split robusto (funciona com 5 ou 6 colunas)
+    # Formato novo (6 cols): | S{n} | Location | Type | DOI | Relevance | Why |
+    # Formato antigo (5 cols): | S{n} | Location | Type | Relevance | Why |
+    source_rows = []
+    for line in inventory_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("| S") and not stripped.startswith("| CODE-"):
+            continue
+        # Pular linhas de cabeçalho e separadores
+        if stripped.startswith("| Source") or stripped.startswith("|---"):
+            continue
+        parts = [p.strip() for p in stripped.split("|")]
+        # parts[0] == "", parts[1] == Source ID, parts[2:] == resto das colunas
+        # parts[-1] == "" (empty after trailing |)
+        if len(parts) < 5:
+            continue
+        source_rows.append(parts)
 
-    for sid, title_or_path_raw, stype in source_rows:
+    for parts in source_rows:
+        sid = parts[1]
+        # Colunas: 2=Location, 3=Type, depois depende do formato
+        location = parts[2] if len(parts) > 2 else ""
+        stype = parts[3] if len(parts) > 3 else ""
+
         # Pular fontes que não são papers
         if "paper" not in stype.lower():
             continue
 
-        row_text = title_or_path_raw
+        # Detectar formato: se parts[4] parece DOI (começa com "10.") ou é "N/A",
+        # é o formato novo com coluna DOI dedicada. Caso contrário, formato antigo.
         doi = None
         arxiv_id = None
+        row_text = location  # fallback para regex scan
 
-        # Extrair DOI
-        doi_match = DOI_PATTERN.search(row_text)
-        if doi_match:
-            doi = doi_match.group(1).rstrip(".")
+        col4 = parts[4] if len(parts) > 4 else ""
+        col5 = parts[5] if len(parts) > 5 else ""
+
+        # Heurística de detecção de formato:
+        # - DOI válido começa com "10." e tem "/"
+        # - "N/A" explícito indica formato novo sem DOI
+        # - Número 1-5 indica formato antigo (coluna Relevance)
+        is_new_format = False
+        if col4.startswith("10.") and "/" in col4:
+            doi = col4.rstrip(".")
+            is_new_format = True
+        elif col4.upper() == "N/A":
+            is_new_format = True  # formato novo, DOI explicitamente ausente
+            # DOI permanece None — tentar extrair do texto da linha como fallback
+        elif col4.isdigit() and 1 <= int(col4) <= 5:
+            is_new_format = False  # formato antigo
+        else:
+            # Ambíguo: tratar como formato antigo, usar regex fallback
+            is_new_format = False
+
+        # No formato novo, o texto completo da linha (location + type + ...)
+        # pode conter arXiv ID ou DOI inline não capturado na coluna
+        full_row_text = " ".join(parts[2:-1])
+
+        # Extrair DOI (fallback: regex no texto da linha se não capturado da coluna)
+        if not doi:
+            doi_match = DOI_PATTERN.search(full_row_text)
+            if doi_match:
+                doi = doi_match.group(1).rstrip(".")
 
         # Extrair arXiv ID
-        arxiv_match = ARXIV_ID_PATTERN.search(row_text)
+        arxiv_match = ARXIV_ID_PATTERN.search(full_row_text)
         if arxiv_match:
             arxiv_id = arxiv_match.group(1)
 
