@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.0 (2026-05-26)
+
+### Added
+
+- **SPEC-005: Freeze Resilience** — 8 fixes para congelamento de runtime no Stage 4:
+  - F-0: Sub-agent wrapper para `rlm_eval` com timeout isolation
+  - F-1: `sub_query_timeout_secs=120` no contrato RLM
+  - F-2: Paywall circuit breaker com integração `pdfs/mapping.json`
+  - F-3: RLM cleanup em todos os paths de erro + sweep na retomada
+  - F-4: `enforce_source_caps.py` — enforcement determinístico de `max_sources_per_axis`
+  - F-5: Checkpoint de saturação em disco (`_saturation_check.md`)
+  - F-6: Per-source budget guidelines documentados
+  - F-7: Métricas RLM no `pipeline_metrics.py`
+- Restrição arquitetural documentada: orquestrador síncrono não pode auto-detectar hangs
+- Fluxo integrado de Stage 4 com paralelismo (até 3 sub-agents simultâneos)
+
+### Changed
+
+- `pipeline-detail.md`: Stage 4 redesign pendente (fluxo wrapper + pre-flight filter)
+- `deep-reading.md`: contrato RLM atualizado com timeout + wrapper pattern
+- `error-recovery.md`: novos cenários (paywall irresolvível, 5+ INACCESSIBLE consecutivos)
+- `stage_status.py`: modificação pendente para detectar `_saturation_check.md`
+- `pipeline_metrics.py`: extensão pendente com classificação de deep reads
+
 ## v3.0.0 (2026-05-23)
 
 ### Breaking Changes
